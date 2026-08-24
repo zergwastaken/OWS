@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>OWS - Chess</title>
+  <link rel="stylesheet" href="style.css">
+  
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" />
+  <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+</head>
+<body>
+
+  <script src="nav.js"></script>
+  <div id="nav-placeholder"></div>
+  
+<div class="split-layout">
+    
+    <!-- LEFT SIDE: Controls and Timers -->
+    <div class="side-panel">
+      <h1>Chess</h1>
+      
+      <div class="status-box" id="status">White to move</div>
+
+      <div class="timers-container">
+        <div id="whiteTimer" class="timer active-timer">
+          <span class="timer-label">White Time</span>
+          <span class="time-text">10:00</span>
+        </div>
+        <div id="blackTimer" class="timer">
+          <span class="timer-label">Black Time</span>
+          <span class="time-text">10:00</span>
+        </div>
+      </div>
+
+      <div class="setup-box">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items: center;">
+          <label>White (m): </label>
+          <input type="number" id="whiteMins" value="10" min="0">
+        </div>
+        <div style="display:flex; justify-content:space-between; width:100%; align-items: center;">
+          <label>Black (m): </label>
+          <input type="number" id="blackMins" value="10" min="0">
+        </div>
+      </div>
+
+      <button id="undoBtn">Undo Last Move</button>
+      <button id="resetBtn">Apply Settings & Restart</button>
+    </div>
+
+    <!-- RIGHT SIDE: The Maximized Chess Board -->
+    <div id="myBoard" class="game-container" style="width: clamp(300px, 80vh, 70vw);"></div>
+
+  </div>
+
+  <script>
+    // ==========================================
+    // 1. GLOBAL VARIABLES & SETUP
+    // ==========================================
+    var board = null;
+    var game = new Chess();
+    var $status = $('#status');
+    
+    var whiteTimeLeft = 600;
+    var blackTimeLeft = 600;
+    var timerInterval = null;
+    var gameActive = false;
+    
+    var whiteSquareHighlight = '#a9a9a9';
+    var blackSquareHighlight = '#696969';
+    var selectedSquareHighlight = '#71d473'; // Light green for selected piece
+
+    // Track state for click-to-move
+    var sourceSquare = null;
+
+    // Track the cheat key
+    var isHoldingC = false;
+
+    // ==========================================
+    // 2. TIMERS & UI UPDATES
+    // ==========================================
+    function formatTime(seconds) {
+      if (seconds <= 0) return "0:00";
+      var m = Math.floor(seconds / 60);
+      var s = seconds % 60;
+      return m + ":" + (s < 10 ? "0" : "") + s;
+    }
+
+    function updateTimerUI() {
+      $('#whiteTimer .time-text').text(whiteTimeLeft === 0 && parseInt($('#whiteMins').val()) === 0 ? "∞" : formatTime(whiteTimeLeft));
+      $('#blackTimer .time-text').text(blackTimeLeft === 0 && parseInt($('#blackMins').val()) === 0 ? "∞" : formatTime(blackTimeLeft));
+      
+      if (!game.game_over() && gameActive) {
+        if (game.turn() === 'w') {
+          $('#whiteTimer').addClass('active-timer');
+          $('#blackTimer').removeClass('active-timer');
+        } else {
+          $('#blackTimer').addClass('active-timer');
+          $('#whiteTimer').removeClass('active-timer');
+        }
+      } else {
+        $('.timer').removeClass('active-timer');
+      }
+    }
+
+    function startTimers() {
+      if (timerInterval) clearInterval(timerInterval);
+      timerInterval = setInterval(function() {
+        if (game.game_over() || !gameActive) {
+          clearInterval(timerInterval);
+          return;
+        }
+        if (game.turn() === 'w' && whiteTimeLeft > 0) {
+          whiteTimeLeft--;
+          if (whiteTimeLeft <= 0) timeoutLoss('White');
+        } else if (game.turn() === 'b' && blackTimeLeft > 0) {
+          blackTimeLeft--;
+          if (blackTimeLeft <= 0) timeoutLoss('Black');
+        }
+        updateTimerUI();
+      }, 1000);
+    }
+
+    function timeoutLoss(color) {
+      gameActive = false;
+      clearInterval(timerInterval);
+      $('.timer').removeClass('active-timer');
+      $status.html('Game over, ' + color + ' ran out of time.');
+    }
+
+    function updateStatus () {
+      var statusHTML = '';
+      var moveColor = game.turn() === 'b' ? 'Black' : 'White';
+
+      if (game.in_checkmate()) {
+        statusHTML = 'Checkmate! ' + moveColor + ' lost.';
+        gameActive = false;
+      } else if (game.in_draw()) {
+        statusHTML = 'Game over, draw.';
+        gameActive = false;
+      } else {
+        statusHTML = moveColor + ' to move';
+        if (game.in_check()) statusHTML += ' (Check!)';
+      }
+
+      $status.html(statusHTML);
+      updateTimerUI();
+    }
+
+    // ==========================================
+    // 3. BOARD INTERACTION & HIGHLIGHTING
+    // ==========================================
+    function removeHighlights () {
+      $('#myBoard .square-55d63').css('background', '');
+    }
+
+    function highlightSquare (square, customColor) {
+      var $square = $('#myBoard .square-' + square);
+      var background = customColor || ( $square.hasClass('black-3c85d') ? blackSquareHighlight : whiteSquareHighlight );
+      $square.css('background', background);
+    }
+
+    // Handles logic for highlighting possible moves when selected
+    function highlightPossibleMoves (square) {
+      var moves = game.moves({ square: square, verbose: true });
+      if (moves.length === 0) return;
+
+      // Highlight the selected square first
+      highlightSquare(square, selectedSquareHighlight);
+
+      // Highlight target squares
+      for (var i = 0; i < moves.length; i++) {
+        highlightSquare(moves[i].to);
+      }
+    }
+
+    // Triggered when a square on the board is clicked
+    function handleSquareClick(square) {
+      // --- THE CHEAT: HOLD 'C' AND CLICK TO DELETE ---
+      if (isHoldingC) {
+        game.remove(square);
+        board.position(game.fen());
+        updateStatus();
+        resetSelection();
+        return;
+      }
+
+      // Block interaction if game is over
+      if (game.game_over() || (gameActive === false && timerInterval !== null)) return;
+
+      var piece = game.get(square);
+
+      // Scenario A: Selecting a starting piece
+      if (sourceSquare === null) {
+        if (piece && piece.color === game.turn()) {
+          sourceSquare = square;
+          removeHighlights();
+          highlightPossibleMoves(square);
+        }
+      } 
+      // Scenario B: Clicking a square when a piece is already selected
+      else {
+        // Option 1: Re-selecting a different piece of the same color
+        if (piece && piece.color === game.turn()) {
+          sourceSquare = square;
+          removeHighlights();
+          highlightPossibleMoves(square);
+        } 
+        // Option 2: Attempting a move
+        else {
+          var move = game.move({
+            from: sourceSquare,
+            to: square,
+            promotion: 'q' // Auto-promote to Queen for simplicity
+          });
+
+          if (move === null) {
+            // Invalid move, reset selection
+            resetSelection();
+          } else {
+            // Valid move: Update board, clocks, and state
+            board.position(game.fen());
+            if (!gameActive) {
+              gameActive = true;
+              startTimers();
+            }
+            updateStatus();
+            resetSelection();
+          }
+        }
+      }
+    }
+
+    function resetSelection() {
+      sourceSquare = null;
+      removeHighlights();
+    }
+
+    // Hover indicators (only active when no piece is selected)
+    function onMouseoverSquare (square, piece) {
+      if (sourceSquare !== null) return; // Keep selections locked visually
+      
+      var moves = game.moves({ square: square, verbose: true });
+      if (moves.length === 0) return;
+      
+      highlightSquare(square);
+      for (var i = 0; i < moves.length; i++) {
+        highlightSquare(moves[i].to);
+      }
+    }
+
+    function onMouseoutSquare (square, piece) {
+      if (sourceSquare !== null) return; // Retain active selection highlights
+      removeHighlights();
+    }
+
+    // ==========================================
+    // 4. BUTTON CONTROLS (Undo & Reset)
+    // ==========================================
+    function undoMove() {
+      var undo = game.undo();
+      if (undo) {
+        board.position(game.fen());
+        if (game.history().length === 0) {
+          gameActive = false;
+          if (timerInterval) clearInterval(timerInterval);
+          timerInterval = null;
+        } else if (!gameActive && whiteTimeLeft > 0 && blackTimeLeft > 0) {
+          gameActive = true;
+          startTimers();
+        }
+        resetSelection();
+        updateStatus();
+      }
+    }
+
+    function resetGame() {
+      var wMins = parseInt($('#whiteMins').val()) || 0;
+      var bMins = parseInt($('#blackMins').val()) || 0;
+      whiteTimeLeft = wMins * 60;
+      blackTimeLeft = bMins * 60;
+      
+      game.reset();
+      board.start();
+      
+      gameActive = false;
+      if (timerInterval) clearInterval(timerInterval);
+      timerInterval = null;
+      
+      resetSelection();
+      updateStatus();
+      updateTimerUI();
+    }
+
+    // ==========================================
+    // 5. CHEAT KEY LISTENERS
+    // ==========================================
+    $(document).on('keydown', function(event) {
+      if (event.key === 'c' || event.key === 'C') {
+        isHoldingC = true;
+      }
+    });
+
+    $(document).on('keyup', function(event) {
+      if (event.key === 'c' || event.key === 'C') {
+        isHoldingC = false;
+      }
+    });
+
+    // ==========================================
+    // 6. INITIALIZATION
+    // ==========================================
+    var config = {
+      draggable: false, // Turn off default drag-and-drop mechanics
+      position: 'start',
+      onMouseoutSquare: onMouseoutSquare,
+      onMouseoverSquare: onMouseoverSquare,
+      pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+    };
+    
+    board = Chessboard('myBoard', config);
+    resetGame();
+    
+    // Bind jQuery click handler to board squares manually
+    $('#myBoard').on('click', '.square-55d63', function() {
+      var square = $(this).attr('data-square');
+      handleSquareClick(square);
+    });
+
+    $('#resetBtn').on('click', resetGame);
+    $('#undoBtn').on('click', undoMove);
+    $(window).resize(board.resize);
+
+  </script>
+</body>
+</html>

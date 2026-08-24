@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>OWS - Checkers</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+  <style>
+    /* Specific styles for the Checkers grid */
+    .checkers-board {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      grid-template-rows: repeat(8, 1fr);
+      
+      border: 4px solid var(--bg-component);
+      border-radius: 6px;
+      box-shadow: var(--shadow-main);
+      
+      width: clamp(300px, 80vh, 70vw);
+      aspect-ratio: 1 / 1; 
+      background-color: #e0d0b0; 
+    }
+
+    .chk-square {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+      height: 100%;
+      position: relative;
+    }
+
+    .chk-dark { background-color: #5c4033; }
+    .chk-light { background-color: #d1bfae; }
+
+    .chk-highlight {
+      background-color: rgba(46, 204, 113, 0.6) !important;
+      cursor: pointer;
+    }
+    
+    .chk-highlight::after {
+      content: '';
+      width: 25%;
+      height: 25%;
+      background: rgba(0,0,0,0.3);
+      border-radius: 50%;
+    }
+
+    .chk-piece {
+      width: 80%;
+      height: 80%;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.5), inset 0 -4px 6px rgba(0,0,0,0.3);
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: clamp(1em, 4vmin, 2.5em);
+      color: rgba(255,255,255,0.7);
+    }
+
+    .chk-piece.selected {
+      transform: scale(1.1);
+      box-shadow: 0 0 15px var(--primary-color), inset 0 -4px 6px rgba(0,0,0,0.3);
+      border: 2px solid var(--primary-color);
+    }
+
+    .chk-red { background-color: #ff4757; border: 2px solid #c0392b; }
+    .chk-black { background-color: #2f3542; border: 2px solid #1e272e; }
+    .chk-king::after { content: '♔'; font-weight: bold; color: gold; }
+  </style>
+</head>
+<body>
+
+  <script src="nav.js"></script>
+  <div id="nav-placeholder"></div>
+
+  <div class="split-layout">
+    <div class="side-panel">
+      <h1>Checkers</h1>
+      <div class="status-box" id="status" style="color: #ff4757;">Red's Turn</div>
+
+      <div class="timers-container">
+        <div id="redTimer" class="timer active-timer">
+          <span class="timer-label">Red Time</span>
+          <span class="time-text">10:00</span>
+        </div>
+        <div id="blackTimer" class="timer">
+          <span class="timer-label">Black Time</span>
+          <span class="time-text">10:00</span>
+        </div>
+      </div>
+
+      <div class="setup-box">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items: center;">
+          <label>Red (m): </label>
+          <input type="number" id="redMins" value="10" min="0">
+        </div>
+        <div style="display:flex; justify-content:space-between; width:100%; align-items: center;">
+          <label>Black (m): </label>
+          <input type="number" id="blackMins" value="10" min="0">
+        </div>
+      </div>
+
+      <button id="undoBtn">Undo Last Move</button>
+      <button id="resetBtn">Apply Settings & Restart</button>
+    </div>
+
+    <div class="checkers-board" id="board"></div>
+  </div>
+
+  <script>
+    // ==========================================
+    // 1. GLOBAL VARIABLES & STATE
+    // ==========================================
+    const ROWS = 8;
+    const COLS = 8;
+    let boardState = []; 
+    let currentPlayer = 'r'; 
+    let selectedPiece = null; 
+    let validMoves = []; 
+    let history = []; 
+    let isMultiJumping = false; // Tracks if a player is in the middle of a double-jump combo
+
+    // Timers
+    let redTimeLeft = 600;
+    let blackTimeLeft = 600;
+    let timerInterval = null;
+    let gameActive = false;
+    const $status = $('#status');
+
+    // ==========================================
+    // 2. TIMERS & UI
+    // ==========================================
+    function formatTime(seconds) {
+      if (seconds <= 0) return "0:00";
+      let m = Math.floor(seconds / 60);
+      let s = seconds % 60;
+      return m + ":" + (s < 10 ? "0" : "") + s;
+    }
+
+    function updateTimerUI() {
+      $('#redTimer .time-text').text(redTimeLeft === 0 && parseInt($('#redMins').val()) === 0 ? "∞" : formatTime(redTimeLeft));
+      $('#blackTimer .time-text').text(blackTimeLeft === 0 && parseInt($('#blackMins').val()) === 0 ? "∞" : formatTime(blackTimeLeft));
+      
+      if (gameActive) {
+        if (currentPlayer === 'r') {
+          $('#redTimer').addClass('active-timer');
+          $('#blackTimer').removeClass('active-timer');
+        } else {
+          $('#blackTimer').addClass('active-timer');
+          $('#redTimer').removeClass('active-timer');
+        }
+      } else {
+        $('.timer').removeClass('active-timer');
+      }
+    }
+
+    function startTimers() {
+      if (timerInterval) clearInterval(timerInterval);
+      timerInterval = setInterval(function() {
+        if (!gameActive) {
+          clearInterval(timerInterval);
+          return;
+        }
+        if (currentPlayer === 'r' && redTimeLeft > 0) {
+          redTimeLeft--;
+          if (redTimeLeft <= 0) endGame('Black wins on time!');
+        } else if (currentPlayer === 'b' && blackTimeLeft > 0) {
+          blackTimeLeft--;
+          if (blackTimeLeft <= 0) endGame('Red wins on time!');
+        }
+        updateTimerUI();
+      }, 1000);
+    }
+
+    function endGame(msg) {
+      gameActive = false;
+      clearInterval(timerInterval);
+      $('.timer').removeClass('active-timer');
+      $status.text(msg);
+      $status.css('color', 'var(--text-main)');
+    }
+
+    // ==========================================
+    // 3. CHECKERS LOGIC
+    // ==========================================
+    function initBoard() {
+      boardState = Array(ROWS).fill(null).map(() => Array(COLS).fill(null));
+      
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if ((r + c) % 2 === 1) boardState[r][c] = 'r';
+        }
+      }
+      for (let r = 5; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if ((r + c) % 2 === 1) boardState[r][c] = 'b';
+        }
+      }
+    }
+
+    function renderBoard() {
+      const boardEl = document.getElementById('board');
+      boardEl.innerHTML = '';
+
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          let square = document.createElement('div');
+          square.className = `chk-square ${(r + c) % 2 === 1 ? 'chk-dark' : 'chk-light'}`;
+          square.dataset.r = r;
+          square.dataset.c = c;
+
+          let isHighlight = validMoves.find(m => m.r === r && m.c === c);
+          if (isHighlight) {
+            square.classList.add('chk-highlight');
+            square.addEventListener('click', () => executeMove(isHighlight));
+          } else {
+            square.addEventListener('click', () => handleSquareClick(r, c));
+          }
+
+          let pieceVal = boardState[r][c];
+          if (pieceVal) {
+            let piece = document.createElement('div');
+            piece.className = 'chk-piece';
+            piece.classList.add(pieceVal.toLowerCase() === 'r' ? 'chk-red' : 'chk-black');
+            if (pieceVal === 'R' || pieceVal === 'B') piece.classList.add('chk-king');
+            
+            if (selectedPiece && selectedPiece.r === r && selectedPiece.c === c) {
+              piece.classList.add('selected');
+            }
+            square.appendChild(piece);
+          }
+          boardEl.appendChild(square);
+        }
+      }
+    }
+
+    function handleSquareClick(r, c) {
+      if (!gameActive && history.length > 0) return;
+      
+      // If we are mid-combo, we are locked in and cannot select a different piece.
+      if (isMultiJumping) return; 
+
+      let pieceVal = boardState[r][c];
+      
+      if (pieceVal && pieceVal.toLowerCase() === currentPlayer) {
+        selectedPiece = {r, c};
+        validMoves = getValidMoves(r, c);
+        renderBoard();
+      } else {
+        selectedPiece = null;
+        validMoves = [];
+        renderBoard();
+      }
+    }
+
+    // Helper: Gets only JUMP moves for a specific piece
+    function getJumps(r, c) {
+      let jumps = [];
+      let piece = boardState[r][c];
+      let dirs = [];
+      
+      if (piece === 'r') dirs = [[1, -1], [1, 1]];
+      else if (piece === 'b') dirs = [[-1, -1], [-1, 1]];
+      else if (piece === 'R' || piece === 'B') dirs = [[1, -1], [1, 1], [-1, -1], [-1, 1]];
+
+      dirs.forEach(d => {
+        let nr = r + d[0], nc = c + d[1];
+        let jr = r + d[0]*2, jc = c + d[1]*2;
+        
+        if (isOnBoard(jr, jc) && boardState[jr][jc] === null && 
+            isOnBoard(nr, nc) && boardState[nr][nc] !== null && 
+            boardState[nr][nc].toLowerCase() !== piece.toLowerCase()) {
+          jumps.push({r: jr, c: jc, isJump: true, jumpR: nr, jumpC: nc});
+        }
+      });
+      return jumps;
+    }
+
+    // Helper: Gets ALL moves (Jumps + Normal slides)
+    function getValidMoves(r, c) {
+      let moves = getJumps(r, c);
+      let piece = boardState[r][c];
+      let dirs = [];
+      
+      if (piece === 'r') dirs = [[1, -1], [1, 1]];
+      else if (piece === 'b') dirs = [[-1, -1], [-1, 1]];
+      else if (piece === 'R' || piece === 'B') dirs = [[1, -1], [1, 1], [-1, -1], [-1, 1]];
+
+      dirs.forEach(d => {
+        let nr = r + d[0], nc = c + d[1];
+        if (isOnBoard(nr, nc) && boardState[nr][nc] === null) {
+          moves.push({r: nr, c: nc, isJump: false});
+        }
+      });
+      return moves;
+    }
+
+    function isOnBoard(r, c) {
+      return r >= 0 && r < ROWS && c >= 0 && c < COLS;
+    }
+
+    function executeMove(move) {
+      saveState();
+
+      if (!gameActive) {
+        gameActive = true;
+        startTimers();
+      }
+
+      let piece = boardState[selectedPiece.r][selectedPiece.c];
+      let promotedToKing = false;
+      
+      boardState[move.r][move.c] = piece;
+      boardState[selectedPiece.r][selectedPiece.c] = null;
+
+      if (move.isJump) {
+        boardState[move.jumpR][move.jumpC] = null;
+      }
+
+      // Handle Promotion
+      if (piece === 'r' && move.r === ROWS - 1) { boardState[move.r][move.c] = 'R'; promotedToKing = true; }
+      if (piece === 'b' && move.r === 0) { boardState[move.r][move.c] = 'B'; promotedToKing = true; }
+
+      let canDoubleJump = false;
+      
+      // If we just jumped, AND we didn't just get crowned, check for more jumps
+      if (move.isJump && !promotedToKing) {
+        let furtherJumps = getJumps(move.r, move.c);
+        if (furtherJumps.length > 0) {
+          canDoubleJump = true;
+          isMultiJumping = true;
+          selectedPiece = {r: move.r, c: move.c};
+          validMoves = furtherJumps;
+          $status.text("Double Jump Available!");
+        }
+      }
+
+      // If combo is over, switch turns normally
+      if (!canDoubleJump) {
+        isMultiJumping = false;
+        selectedPiece = null;
+        validMoves = [];
+        currentPlayer = currentPlayer === 'r' ? 'b' : 'r';
+        
+        $status.text(`${currentPlayer === 'r' ? 'Red' : 'Black'}'s Turn`);
+        $status.css('color', currentPlayer === 'r' ? '#ff4757' : '#1e90ff');
+      }
+
+      updateTimerUI();
+      renderBoard();
+      checkWinCondition();
+    }
+
+    function checkWinCondition() {
+      let redCount = 0, blackCount = 0;
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (boardState[r][c] !== null) {
+            if (boardState[r][c].toLowerCase() === 'r') redCount++;
+            if (boardState[r][c].toLowerCase() === 'b') blackCount++;
+          }
+        }
+      }
+      
+      if (redCount === 0) endGame("Black Wins!");
+      else if (blackCount === 0) endGame("Red Wins!");
+    }
+
+    // ==========================================
+    // 4. UNDO & RESET
+    // ==========================================
+    function saveState() {
+      history.push({
+        board: JSON.parse(JSON.stringify(boardState)),
+        player: currentPlayer,
+        isMultiJumping: isMultiJumping,
+        selectedPiece: selectedPiece ? {...selectedPiece} : null,
+        validMoves: JSON.parse(JSON.stringify(validMoves))
+      });
+    }
+
+    function undoMove() {
+      if (history.length === 0) return;
+      
+      let prevState = history.pop();
+      boardState = prevState.board;
+      currentPlayer = prevState.player;
+      isMultiJumping = prevState.isMultiJumping;
+      selectedPiece = prevState.selectedPiece;
+      validMoves = prevState.validMoves;
+      
+      if (history.length === 0) {
+        gameActive = false;
+      } else {
+        gameActive = true;
+        startTimers();
+      }
+      
+      if (isMultiJumping) {
+        $status.text("Double Jump Available!");
+      } else {
+        $status.text(`${currentPlayer === 'r' ? 'Red' : 'Black'}'s Turn`);
+        $status.css('color', currentPlayer === 'r' ? '#ff4757' : '#1e90ff');
+      }
+      
+      updateTimerUI();
+      renderBoard();
+    }
+
+    function resetGame() {
+      let rMins = parseInt($('#redMins').val()) || 0;
+      let bMins = parseInt($('#blackMins').val()) || 0;
+      redTimeLeft = rMins * 60;
+      blackTimeLeft = bMins * 60;
+      
+      currentPlayer = 'r';
+      gameActive = false;
+      isMultiJumping = false;
+      history = [];
+      selectedPiece = null;
+      validMoves = [];
+      
+      if (timerInterval) clearInterval(timerInterval);
+      
+      $status.text("Red's Turn");
+      $status.css('color', '#ff4757');
+      
+      initBoard();
+      renderBoard();
+      updateTimerUI();
+    }
+
+    // Initialization
+    resetGame();
+    $('#resetBtn').on('click', resetGame);
+    $('#undoBtn').on('click', undoMove);
+
+  </script>
+</body>
+</html>

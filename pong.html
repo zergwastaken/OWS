@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>OWS - Pong</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+  <style>
+    /* Scoreboard styling */
+    .pong-scoreboard {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-around;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: clamp(2em, 6vh, 4em);
+      font-weight: bold;
+      text-align: center;
+      padding: 10px;
+    }
+    .p1-score { color: #ff4757; }
+    .p2-score { color: #1e90ff; }
+
+    /* 
+      THE FIX: This container now exactly mimics the chess board's container.
+      It will be a perfectly square area.
+    */
+    #pongCanvasContainer {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+      padding: 0; /* Remove default padding */
+    }
+
+    /* 
+      The canvas will now live inside the square container, but we force it
+      into a 2:1 aspect ratio, which is standard for Pong.
+    */
+    #pongCanvas {
+      background-color: #000;
+      width: 100%;
+      height: 100%;
+      aspect-ratio: 2 / 1; /* Enforce a classic Pong table shape */
+      max-width: 100%;
+      max-height: 100%;
+    }
+  </style>
+</head>
+<body>
+
+  <script src="nav.js"></script>
+  <div id="nav-placeholder"></div>
+
+  <div class="split-layout">
+    
+    <!-- LEFT SIDE: Scoreboard and Controls -->
+    <div class="side-panel">
+      <h1>PONG</h1>
+      
+      <div class="status-box pong-scoreboard">
+        <div class="p1-score" id="p1Score">0</div>
+        <div style="color: #555;">-</div>
+        <div class="p2-score" id="p2Score">0</div>
+      </div>
+
+      <div class="setup-box">
+        <div><strong style="color:#ff4757">P1 (Red):</strong> W / S</div>
+        <div><strong style="color:#1e90ff">P2 (Blue):</strong> ↑ / ↓</div>
+      </div>
+       <button id="resetBtn">Reset Game</button>
+    </div>
+
+    <!-- RIGHT SIDE: The Game Canvas -->
+    <!-- Applying the exact same style as the chess board -->
+    <div id="pongCanvasContainer" class="game-container" style="width: clamp(300px, 90vh, 70vw);">
+        <canvas id="pongCanvas"></canvas>
+    </div>
+
+  </div>
+
+  <script>
+    const canvas = document.getElementById('pongCanvas');
+    const ctx = canvas.getContext('2d');
+
+    function resizeCanvas() {
+        // We get the container's dimensions
+        const container = document.getElementById('pongCanvasContainer');
+        const containerWidth = container.clientWidth;
+        const containerHeight = container.clientHeight;
+
+        // Given our 2:1 aspect ratio, we find the limiting dimension
+        if (containerWidth / containerHeight > 2) {
+            // Container is wider than the game, so height is the limit
+            canvas.height = containerHeight;
+            canvas.width = containerHeight * 2;
+        } else {
+            // Container is taller than the game, so width is the limit
+            canvas.width = containerWidth;
+            canvas.height = containerWidth / 2;
+        }
+        
+        // Recalculate paddle positions after resize
+        resetPositions();
+    }
+    
+    window.addEventListener('resize', resizeCanvas);
+    
+    // Game constants scaled relative to canvas height
+    const paddleHeightRatio = 0.25; // 25% of canvas height
+    const paddleWidthRatio = 0.02;  // 2% of canvas height
+    const ballSizeRatio = 0.03;     // 3% of canvas height
+    const paddleSpeedRatio = 0.015;  // 1.5% of canvas height per frame
+
+    let p1 = { x: 0, y: 0, score: 0 };
+    let p2 = { x: 0, y: 0, score: 0 };
+    let ball = { x: 0, y: 0, dx: 0, dy: 0 };
+    
+    function resetPositions() {
+        const h = canvas.height;
+        p1.x = h * 0.05; // Position paddles relative to size
+        p1.y = h / 2 - (h * paddleHeightRatio) / 2;
+        p2.x = canvas.width - (h * 0.05) - (h * paddleWidthRatio);
+        p2.y = h / 2 - (h * paddleHeightRatio) / 2;
+    }
+
+    function resetBall() {
+      ball.x = canvas.width / 2;
+      ball.y = canvas.height / 2;
+      // Ball speed is relative to canvas size
+      ball.dx = (Math.random() > 0.5 ? 1 : -1) * (canvas.width * 0.007);
+      ball.dy = (Math.random() > 0.5 ? 1 : -1) * (canvas.height * 0.007);
+    }
+    
+    function resetGame() {
+        p1.score = 0;
+        p2.score = 0;
+        document.getElementById('p1Score').innerText = p1.score;
+        document.getElementById('p2Score').innerText = p2.score;
+        resizeCanvas();
+        resetPositions();
+        resetBall();
+    }
+
+    function update() {
+      const h = canvas.height;
+      const paddleH = h * paddleHeightRatio;
+      const speed = h * paddleSpeedRatio;
+
+      // Player Movement
+      if (keys["KeyW"] && p1.y > 0) p1.y -= speed;
+      if (keys["KeyS"] && p1.y < h - paddleH) p1.y += speed;
+      if (keys["ArrowUp"] && p2.y > 0) p2.y -= speed;
+      if (keys["ArrowDown"] && p2.y < h - paddleH) p2.y += speed;
+
+      // Ball Movement
+      ball.x += ball.dx;
+      ball.y += ball.dy;
+
+      // Wall & Paddle Collision
+      const ballS = h * ballSizeRatio;
+      const paddleW = h * paddleWidthRatio;
+
+      if (ball.y <= 0 || ball.y + ballS >= h) {
+        ball.dy *= -1;
+      }
+
+      if (ball.dx < 0 && ball.x <= p1.x + paddleW && ball.x > p1.x && ball.y + ballS >= p1.y && ball.y <= p1.y + paddleH) {
+        ball.dx *= -1.03; // Speed up
+      }
+      if (ball.dx > 0 && ball.x + ballS >= p2.x && ball.x < p2.x && ball.y + ballS >= p2.y && ball.y <= p2.y + paddleH) {
+        ball.dx *= -1.03; // Speed up
+      }
+
+      // Scoring
+      if (ball.x < 0) {
+        p2.score++;
+        document.getElementById('p2Score').innerText = p2.score;
+        resetBall();
+      }
+      if (ball.x > canvas.width) {
+        p1.score++;
+        document.getElementById('p1Score').innerText = p1.score;
+        resetBall();
+      }
+    }
+
+    function draw() {
+        const h = canvas.height;
+        ctx.clearRect(0, 0, canvas.width, h);
+        
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, canvas.width, h);
+
+        ctx.setLineDash([15, 20]);
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2, 0);
+        ctx.lineTo(canvas.width / 2, h);
+        ctx.strokeStyle = "#333";
+        ctx.lineWidth = 4;
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const paddleW = h * paddleWidthRatio;
+        const paddleH = h * paddleHeightRatio;
+        ctx.fillStyle = "#ff4757";
+        ctx.fillRect(p1.x, p1.y, paddleW, paddleH);
+        ctx.fillStyle = "#1e90ff";
+        ctx.fillRect(p2.x, p2.y, paddleW, paddleH);
+
+        const ballS = h * ballSizeRatio;
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(ball.x, ball.y, ballS, ballS);
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // --- INITIALIZATION ---
+    const keys = {};
+    window.addEventListener("keydown", e => keys[e.code] = true);
+    window.addEventListener("keyup", e => keys[e.code] = false);
+
+    setTimeout(() => {
+        resetGame();
+        gameLoop();
+    }, 50);
+
+    $('#resetBtn').on('click', resetGame);
+  </script>
+</body>
+</html>

@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Emoji Guess</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+  <style>
+    /* Emoji Puzzle Board Styles */
+    .emoji-board {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background-color: var(--bg-panel);
+      border: 4px solid var(--bg-component);
+      border-radius: 6px;
+      box-shadow: var(--shadow-main);
+      padding: 30px;
+      gap: 20px;
+      width: clamp(300px, 80vh, 70vw);
+      aspect-ratio: 1 / 1; 
+    }
+    .emoji-display {
+      font-size: clamp(3em, 8vmin, 4.5em);
+      background: var(--bg-dark);
+      padding: 20px 40px;
+      border-radius: 12px;
+      box-shadow: inset 0 5px 15px rgba(0,0,0,0.8);
+      border: 2px solid #444;
+      text-align: center;
+      letter-spacing: 0.1em;
+      min-width: 80%;
+      line-height: 1.2;
+    }
+    .guess-container {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      width: 80%;
+      align-items: stretch;
+    }
+    .guess-input {
+      background: var(--bg-dark);
+      border: 2px solid #555;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 1.3em;
+      color: white;
+      text-align: center;
+      width: 100%;
+      font-weight: bold;
+      transition: border-color 0.2s;
+    }
+    .guess-input:focus {
+      outline: none;
+      border-color: var(--primary-color);
+    }
+    .category-tag {
+      font-size: clamp(0.9em, 2vh, 1.2em);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--primary-color);
+      font-weight: bold;
+    }
+    .hint-text {
+      font-size: clamp(1em, 2vh, 1.3em);
+      color: var(--text-muted);
+      font-style: italic;
+      height: 30px;
+      text-align: center;
+    }
+    .revealed-answer {
+      font-size: 1.2em;
+      color: #2ecc71;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      height: 30px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation Bar -->
+  <div class="directory-tabs" style="display: flex;">
+    <h1>🔛⌚🤡 OWS</h1>
+      <a href="index.html">🏠 Home</a>
+  </div>
+
+  <div class="split-layout">
+    
+    <!-- LEFT SIDE: Scores and Controls -->
+    <div class="side-panel">
+      <h1>EMOJI GUESS</h1>
+      <div class="status-box" id="turnIndicator">Player 1's Turn</div>
+      <div class="timers-container">
+        <div class="timer" id="p1Score">
+          <span class="timer-label">Player 1</span>
+          <span class="time-text">0</span>
+        </div>
+        <div class="timer" id="p2Score">
+          <span class="timer-label">Player 2</span>
+          <span class="time-text">0</span>
+        </div>
+      </div>
+      <div class="status-box" style="font-size: 0.9em; line-height: 1.4;">
+        Type the exact answer. Turn ends on correct guess. <br>
+        <small style="color:var(--text-muted);">Points: Correct Guess (+10) | Hint (-2)</small>
+      </div>
+      <button id="hintBtn" style="background-color: var(--accent-orange);">Reveal Hint (-2pts)</button>
+      <button id="skipBtn" style="background-color: #e74c3c;">Pass Turn</button>
+      <button id="resetBtn">Reset Game</button>
+    </div>
+
+    <!-- RIGHT SIDE: The Emoji Board -->
+    <div class="emoji-board">
+      <div class="category-tag" id="category">Category</div>
+      <div class="emoji-display" id="emojis">👇🚀⚓</div>
+      <div class="hint-text" id="hint">Press Hint to reveal a clue...</div>
+      <div class="guess-container">
+        <input type="text" class="guess-input" id="guessInput" placeholder="Type your guess here..." autocomplete="off">
+        <button id="submitBtn" style="width: 100%;">Submit Answer</button>
+      </div>
+      <div class="revealed-answer" id="resultMessage"></div>
+    </div>
+  </div>
+
+  <!-- Puzzle Database (Clever Wordplay & Phonetic Puns) -->
+  <script id="puzzle-database">
+    const puzzles = [
+      // Phonetic Puns & Wordplay
+      { emojis: "👁️❤️🐑", answer: "i love you", category: "Phonetic Puns" }, // Eye Love Ewe
+      { emojis: "👕🦵", answer: "irony", category: "Phonetic Puns" }, // Iron Knee
+      { emojis: "👟👯", answer: "soulmate", category: "Phonetic Puns" }, // Sole Mate
+      { emojis: "🕳️🐄", answer: "holy cow", category: "Phonetic Puns" }, // Hole-y Cow
+      { emojis: "🪄🐝", answer: "spelling bee", category: "Wordplay" }, // Spell Bee
+      { emojis: "🚗🐾", answer: "carpet", category: "Compound Words" }, // Car Pet
+      { emojis: "💧🍈", answer: "watermelon", category: "Compound Words" }, // Water Melon
+      { emojis: "🎈🌽", answer: "popcorn", category: "Compound Words" }, // Pop Corn
+      { emojis: "🌲🍎", answer: "pineapple", category: "Compound Words" }, // Pine Apple
+      { emojis: "🍯🌙", answer: "honeymoon", category: "Compound Words" }, // Honey Moon
+      { emojis: "🧈☕", answer: "buttercup", category: "Compound Words" }, // Butter Cup
+      
+      // Clever Compound Words (Literal Translations)
+      { emojis: "🔥💼", answer: "fireworks", category: "Literal Compounds" }, // Fire Works
+      { emojis: "⌚🐶", answer: "watchdog", category: "Literal Compounds" }, // Watch Dog
+      { emojis: "💀〰️", answer: "deadline", category: "Literal Compounds" }, // Dead Line
+      { emojis: "🧠🧼", answer: "brainwash", category: "Literal Compounds" }, // Brain Wash
+      { emojis: "☀️💭", answer: "daydream", category: "Literal Compounds" }, // Day Dream
+      { emojis: "🤢🍃", answer: "sick leave", category: "Literal Compounds" }, // Sick Leaf (Leave)
+      { emojis: "🔙🎒", answer: "backpack", category: "Literal Compounds" }, // Back Pack
+      { emojis: "❄️⚾", answer: "snowball", category: "Literal Compounds" }, // Snow Ball
+      { emojis: "🗑️🍔", answer: "junk food", category: "Literal Compounds" }, // Junk Food
+      { emojis: "🔪😂", answer: "killjoy", category: "Literal Compounds" }, // Kill Joy
+      { emojis: "✊🚪😴", answer: "knockout", category: "Literal Compounds" }, // Knock Out
+      { emojis: "🔁🕳️", answer: "loophole", category: "Literal Compounds" }, // Loop Hole
+      { emojis: "🌃🧢", answer: "nightcap", category: "Literal Compounds" }, // Night Cap
+      { emojis: "📄🔙", answer: "paperback", category: "Literal Compounds" }, // Paper Back
+      { emojis: "📌👆", answer: "pinpoint", category: "Literal Compounds" }, // Pin Point
+      { emojis: "🐷🐖", answer: "pigtail", category: "Literal Compounds" }, // Pig Tail
+      { emojis: "🐚🐟", answer: "shellfish", category: "Literal Compounds" }, // Shell Fish
+      { emojis: "🤏🗣️", answer: "small talk", category: "Literal Compounds" }, // Small Talk
+      { emojis: "🧼🎶", answer: "soap opera", category: "Literal Compounds" }, // Soap Opera
+      { emojis: "🔊🛤️", answer: "soundtrack", category: "Literal Compounds" }, // Sound Track
+      { emojis: "🌱💔", answer: "spring break", category: "Literal Compounds" }, // Spring Break
+      { emojis: "💧👕", answer: "water polo", category: "Literal Compounds" }, // Water Polo
+      { emojis: "🧠🥶", answer: "brain freeze", category: "Literal Compounds" }, // Brain Freeze
+      { emojis: "🥶🤷‍♀️", answer: "cold shoulder", category: "Literal Compounds" }, // Cold Shoulder
+      { emojis: "🛋️🥔", answer: "couch potato", category: "Literal Compounds" }, // Couch Potato
+      { emojis: "😭👶", answer: "cry baby", category: "Literal Compounds" }, // Cry Baby
+      { emojis: "👂🐛", answer: "earworm", category: "Literal Compounds" }, // Ear Worm
+      { emojis: "👁️👤", answer: "eye shadow", category: "Literal Compounds" }, // Eye Shadow
+      { emojis: "👤🌴", answer: "face palm", category: "Literal Compounds" }, // Face Palm
+      { emojis: "🇫🇷💋", answer: "french kiss", category: "Literal Compounds" }, // French Kiss
+      { emojis: "👻🏙️", answer: "ghost town", category: "Literal Compounds" }, // Ghost Town
+      { emojis: "🦆💥", answer: "goosebumps", category: "Literal Compounds" }, // Goose Bumps
+      { emojis: "❤️🔨", answer: "heartbreak", category: "Literal Compounds" }, // Heart Break
+
+      // Pop Culture & Celebrity Phonetics
+      { emojis: "🍅🛳️", answer: "tom cruise", category: "Celebrity Puns" }, // Tom Cruise
+      { emojis: "🐅🪵", answer: "tiger woods", category: "Celebrity Puns" }, // Tiger Woods
+      { emojis: "🕵️‍♂️🐶", answer: "snoop dogg", category: "Celebrity Puns" }, // Snoop Dogg
+      { emojis: "💇‍♂️🏺", answer: "harry potter", category: "Fictional Characters" }, // Hairy Potter
+      { emojis: "🧲👨", answer: "iron man", category: "Fictional Characters" }, // Magnet (Iron) Man
+      { emojis: "🦇👨", answer: "batman", category: "Fictional Characters" }, // Bat Man
+      { emojis: "🕷️👨", answer: "spiderman", category: "Fictional Characters" }, // Spider Man
+      { emojis: "🐜👨", answer: "ant man", category: "Fictional Characters" }, // Ant Man
+      { emojis: "🌲🏃‍♂️", answer: "forrest gump", category: "Movies" }, // Forest Gump
+      { emojis: "🥊♣️", answer: "fight club", category: "Movies" }, // Fight Club
+
+      // Military & Nautical Puns
+      { emojis: "🥪🌊", answer: "submarine", category: "Military Wordplay" }, // Sub Marine
+      { emojis: "🥾⛺", answer: "boot camp", category: "Military Wordplay" }, // Boot Camp
+      { emojis: "👀👨", answer: "seaman", category: "Military Wordplay" }, // See Man
+      { emojis: "🧍‍♂️👋", answer: "standby", category: "Military Wordplay" }, // Stand By
+      { emojis: "🪙👨‍🏫", answer: "quartermaster", category: "Military Wordplay" }, // Quarter Master
+      { emojis: "🤝🔥", answer: "friendly fire", category: "Military Wordplay" }, // Friendly Fire
+      { emojis: "✝️🔥", answer: "crossfire", category: "Military Wordplay" }, // Cross Fire
+      { emojis: "🌊🍔", answer: "seafood", category: "Nautical Wordplay" }, // Sea Food
+      { emojis: "🎫⚓", answer: "passport", category: "Nautical Wordplay" }, // Pass Port
+
+      // More Clever Sayings
+      { emojis: "⏰🪰", answer: "time flies", category: "Sayings" }, // Time Flies
+      { emojis: "💧💀", answer: "drop dead", category: "Sayings" }, // Drop Dead
+      { emojis: "🚗➡️", answer: "drive thru", category: "Sayings" }, // Drive Thru
+      { emojis: "🧊🍦🥪", answer: "ice cream sandwich", category: "Food Wordplay" }, // Ice Cream Sandwich
+      { emojis: "🔥🌬️🎈", answer: "hot air balloon", category: "Objects" }, // Hot Air Balloon
+      { emojis: "🇫🇷🍟", answer: "french fry", category: "Food Wordplay" }, // French Fry
+      { emojis: "🩸🗜️", answer: "blood pressure", category: "Medical Wordplay" }, // Blood Press(ure)
+      { emojis: "🌬️🏭", answer: "windmill", category: "Objects" }, // Wind Mill
+      { emojis: "🎡🪑", answer: "wheelchair", category: "Objects" }, // Wheel Chair
+      { emojis: "💧🍂", answer: "waterfall", category: "Nature Wordplay" }, // Water Fall
+      { emojis: "🦷🖌️", answer: "toothbrush", category: "Objects" }, // Tooth Brush
+      { emojis: "🍵☕", answer: "teacup", category: "Objects" }, // Tea Cup
+      { emojis: "👔💼", answer: "suitcase", category: "Objects" }, // Suit Case
+      { emojis: "❄️👨", answer: "snowman", category: "Objects" }, // Snow Man
+      { emojis: "🪶💡", answer: "lightbulb", category: "Objects" }, // Light Bulb
+      { emojis: "🔑🛹", answer: "keyboard", category: "Objects" }, // Key Board
+      { emojis: "🍮🐟", answer: "jellyfish", category: "Animals" }, // Jelly Fish
+      { emojis: "💔🔥", answer: "heartburn", category: "Medical Wordplay" }, // Heart Burn
+      { emojis: "🌍🫨", answer: "earthquake", category: "Nature Wordplay" }, // Earth Quake
+      { emojis: "🦶🖨️", answer: "footprint", category: "Objects" }, // Foot Print
+      { emojis: "⬇️📂", answer: "download", category: "Tech Wordplay" }, // Down Load
+      { emojis: "❌🔤", answer: "crossword", category: "Games" }, // Cross Word
+      { emojis: "🐂👁️", answer: "bullseye", category: "Sports/Games" }, // Bulls Eye
+      { emojis: "🕸️💼", answer: "network", category: "Tech Wordplay" }, // Net Work
+      { emojis: "🌙💡", answer: "moonlight", category: "Nature Wordplay" }, // Moon Light
+      { emojis: "🏦💥", answer: "bankrupt", category: "Finance Wordplay" }, // Bank Rupt (Explosion)
+      { emojis: "🌃🐎", answer: "nightmare", category: "Wordplay" }, // Night Mare
+      { emojis: "🎶📦", answer: "jukebox", category: "Objects" }, // Music Box
+      { emojis: "👂🧁", answer: "earmuff", category: "Objects" }, // Ear Muff
+      { emojis: "👁️🍬", answer: "eye candy", category: "Sayings" }, // Eye Candy
+      { emojis: "⚫✉️", answer: "blackmail", category: "Crimes" } // Black Mail
+    ];
+  </script>
+
+
+  <script>
+    // ==========================================
+    // 2. GAME STATE
+    // ==========================================
+    let currentPuzzleIndex = 0;
+    let shuffledPuzzles = [];
+    let scores = { p1: 0, p2: 0 };
+    let activePlayer = 'p1';
+    let hintUsed = false;
+
+    const $emojis = $('#emojis');
+    const $category = $('#category');
+    const $hint = $('#hint');
+    const $guessInput = $('#guessInput');
+    const $resultMessage = $('#resultMessage');
+    const $turnIndicator = $('#turnIndicator');
+
+    // ==========================================
+    // 3. GAMEPLAY LOGIC
+    // ==========================================
+    function loadPuzzle() {
+      hintUsed = false;
+      $resultMessage.text('');
+      $guessInput.val('').prop('disabled', false);
+      $guessInput.focus();
+      
+      const p = shuffledPuzzles[currentPuzzleIndex];
+      $emojis.text(p.emojis);
+      $category.text(`Category: ${p.category}`);
+      $hint.text('Press the orange button if you need a clue!');
+      
+      updateTurnIndicator();
+    }
+
+    function updateTurnIndicator() {
+      const playerText = activePlayer === 'p1' ? "Player 1's Turn" : "Player 2's Turn";
+      $turnIndicator.text(playerText);
+      $turnIndicator.css('color', activePlayer === 'p1' ? '#ff4757' : '#1e90ff');
+      
+      if (activePlayer === 'p1') {
+        $('#p1Score').addClass('active-timer');
+        $('#p2Score').removeClass('active-timer');
+      } else {
+        $('#p2Score').addClass('active-timer');
+        $('#p1Score').removeClass('active-timer');
+      }
+    }
+
+    function checkAnswer() {
+      const rawGuess = $guessInput.val().trim().toLowerCase();
+      const correctAnswer = shuffledPuzzles[currentPuzzleIndex].answer.toLowerCase();
+
+      if (rawGuess === correctAnswer) {
+        const pointsEarned = hintUsed ? 8 : 10;
+        scores[activePlayer] += pointsEarned;
+        
+        $('#p1Score .time-text').text(scores.p1);
+        $('#p2Score .time-text').text(scores.p2);
+        
+        $resultMessage.css('color', '#2ecc71').text(`CORRECT! +${pointsEarned} Points`);
+        $guessInput.prop('disabled', true);
+
+        setTimeout(() => {
+          nextPuzzle();
+        }, 1500);
+      } else {
+        $resultMessage.css('color', '#ff4757').text('Try Again!');
+        setTimeout(() => $resultMessage.text(''), 1000);
+      }
+    }
+
+    function nextPuzzle() {
+      currentPuzzleIndex++;
+      if (currentPuzzleIndex >= shuffledPuzzles.length) {
+          // End of the shuffled list, reshuffle and start over
+          currentPuzzleIndex = 0;
+          shufflePuzzles();
+      }
+      switchTurn();
+      loadPuzzle();
+    }
+
+    function switchTurn() {
+      activePlayer = activePlayer === 'p1' ? 'p2' : 'p1';
+    }
+    
+    function shufflePuzzles() {
+        // Fisher-Yates Shuffle Algorithm for true randomization
+        shuffledPuzzles = [...puzzles];
+        for (let i = shuffledPuzzles.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffledPuzzles[i], shuffledPuzzles[j]] = [shuffledPuzzles[j], shuffledPuzzles[i]];
+        }
+    }
+
+    // ==========================================
+    // 4. ACTION CONTROLS & LISTENERS
+    // ==========================================
+    $('#submitBtn').on('click', checkAnswer);
+    $guessInput.on('keypress', function(e) {
+      if (e.which === 13) checkAnswer();
+    });
+
+    $('#hintBtn').on('click', function() {
+      if (hintUsed) return;
+      hintUsed = true;
+      scores[activePlayer] -= 2; // Penalize for using hint
+      $('#p1Score .time-text').text(scores.p1);
+      $('#p2Score .time-text').text(scores.p2);
+      
+      const ans = shuffledPuzzles[currentPuzzleIndex].answer;
+      const hiddenClue = ans.split(' ').map(word => {
+        return word.charAt(0).toUpperCase() + "_ ".repeat(word.length - 1).trim();
+      }).join('   ');
+      
+      $hint.html(`Clue: <strong style="color:var(--accent-orange);">${hiddenClue}</strong>`);
+    });
+
+    $('#skipBtn').on('click', function() {
+        $resultMessage.css('color', '#f1c40f').text(`Answer: ${shuffledPuzzles[currentPuzzleIndex].answer}`);
+        setTimeout(() => {
+          nextPuzzle();
+        }, 2000);
+    });
+
+    function resetGame() {
+      shufflePuzzles();
+      currentPuzzleIndex = 0;
+      scores = { p1: 0, p2: 0 };
+      activePlayer = 'p1';
+      
+      $('#p1Score .time-text').text(0);
+      $('#p2Score .time-text').text(0);
+      
+      loadPuzzle();
+    }
+
+    $('#resetBtn').on('click', resetGame);
+
+    // Initial Load
+    resetGame();
+  </script>
+</body>
+</html>

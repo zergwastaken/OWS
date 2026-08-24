@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>OWS - Tic Tac Toe</title>
+  <link rel="stylesheet" href="style.css">
+  
+  <style>
+    /* Specific styles for the Tic-Tac-Toe grid */
+    .game-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: calc(100vh - 70px); /* Accounts for the top nav bar */
+    }
+
+    .ttt-board {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      background-color: var(--bg-component);
+      padding: 12px;
+      border-radius: 12px;
+      box-shadow: var(--shadow-main);
+      border: 4px solid #222;
+      /* Using vmin ensures it scales perfectly on both tall and wide screens */
+      width: clamp(250px, 50vmin, 500px); 
+      margin: 20px 0;
+    }
+
+    .ttt-cell {
+      aspect-ratio: 1 / 1; /* Forces perfect squares */
+      background-color: var(--bg-dark);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: clamp(3em, 12vmin, 6em);
+      font-family: 'Segoe UI', sans-serif;
+      font-weight: bold;
+      cursor: pointer;
+      border-radius: 8px;
+      transition: background-color 0.2s ease, transform 0.1s ease;
+    }
+
+    .ttt-cell:hover { 
+      background-color: var(--bg-panel); 
+    }
+    
+    .ttt-cell:active {
+      transform: scale(0.95);
+    }
+
+    .ttt-X { color: #ff4757; text-shadow: 0 0 15px rgba(255, 71, 87, 0.4); }
+    .ttt-O { color: #1e90ff; text-shadow: 0 0 15px rgba(30, 144, 255, 0.4); }
+  </style>
+</head>
+<body>
+
+  <script src="nav.js"></script>
+  <div id="nav-placeholder"></div>
+
+
+  <div class="game-wrapper">
+    <h1 style="margin-bottom: 10px;">Tic-Tac-Toe</h1>
+    
+    <div class="status-box" id="status" style="color: #ff4757; min-width: 250px;">Player X's Turn</div>
+    
+    <!-- The Tic-Tac-Toe Grid -->
+    <div class="ttt-board" id="board">
+      <div class="ttt-cell" data-index="0"></div>
+      <div class="ttt-cell" data-index="1"></div>
+      <div class="ttt-cell" data-index="2"></div>
+      <div class="ttt-cell" data-index="3"></div>
+      <div class="ttt-cell" data-index="4"></div>
+      <div class="ttt-cell" data-index="5"></div>
+      <div class="ttt-cell" data-index="6"></div>
+      <div class="ttt-cell" data-index="7"></div>
+      <div class="ttt-cell" data-index="8"></div>
+    </div>
+
+    <button onclick="resetGame()">Restart Game</button>
+  </div>
+
+  <script>
+    const cells = document.querySelectorAll('.ttt-cell');
+    const statusText = document.getElementById('status');
+    let board = ["", "", "", "", "", "", "", "", ""];
+    let currentPlayer = "X";
+    let gameActive = true;
+
+    // All possible winning line combinations
+    const winConditions = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
+      [0, 3, 6], [1, 4, 7], [2, 5, 8], // Columns
+      [0, 4, 8], [2, 4, 6]             // Diagonals
+    ];
+
+    // Add click listeners to every cell
+    cells.forEach(cell => cell.addEventListener('click', handleCellClick));
+
+    function handleCellClick(e) {
+      const cell = e.target;
+      const index = cell.getAttribute('data-index');
+
+      // Ignore if cell is already full or the game is over
+      if (board[index] !== "" || !gameActive) return;
+
+      // Update backend array and front-end UI
+      board[index] = currentPlayer;
+      cell.innerText = currentPlayer;
+      
+      // Add the color class (Red for X, Blue for O)
+      cell.classList.add(currentPlayer === "X" ? "ttt-X" : "ttt-O");
+
+      checkWinner();
+    }
+
+    function checkWinner() {
+      let roundWon = false;
+
+      // Loop through all winning combinations
+      for (let i = 0; i < winConditions.length; i++) {
+        const [a, b, c] = winConditions[i];
+        if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+          roundWon = true;
+          break;
+        }
+      }
+
+      // Handle Win
+      if (roundWon) {
+        statusText.innerText = `Player ${currentPlayer} Wins!`;
+        gameActive = false;
+        return;
+      }
+
+      // Handle Draw (no empty strings left in the array)
+      if (!board.includes("")) {
+        statusText.innerText = "It's a Draw!";
+        statusText.style.color = "var(--text-main)";
+        gameActive = false;
+        return;
+      }
+
+      // Switch Turns
+      currentPlayer = currentPlayer === "X" ? "O" : "X";
+      statusText.innerText = `Player ${currentPlayer}'s Turn`;
+      
+      // Update status box text color to match the current player
+      statusText.style.color = currentPlayer === "X" ? "#ff4757" : "#1e90ff";
+    }
+
+    function resetGame() {
+      board = ["", "", "", "", "", "", "", "", ""];
+      currentPlayer = "X";
+      gameActive = true;
+      
+      statusText.innerText = `Player X's Turn`;
+      statusText.style.color = "#ff4757"; // Reset to Player X color
+      
+      // Clear the board UI
+      cells.forEach(cell => {
+        cell.innerText = "";
+        cell.classList.remove('ttt-X', 'ttt-O');
+      });
+    }
+  </script>
+</body>
+</html>
