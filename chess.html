@@ -17,7 +17,6 @@
 
   <div class="split-layout">
 
-    <!-- LEFT SIDE: Controls and Timers -->
     <div class="side-panel">
       <h1>Chess</h1>
 
@@ -66,14 +65,54 @@
       </p>
     </div>
 
-    <!-- RIGHT SIDE: Chess Board -->
-    <div id="myBoard" class="game-container" style="width: clamp(300px, 80vh, 70vw);"></div>
+    <!-- BOARD AND MATERIAL TRACKER -->
+    <div class="board-and-material" style="display:flex; align-items:flex-start; gap:20px;">
+      <div id="myBoard" class="game-container" style="width:clamp(300px, 75vh, 60vw);"></div>
+
+      <aside class="material-panel" style="min-width:175px; max-width:210px;">
+        <h2 style="margin-top:0;">Material</h2>
+
+        <div id="materialStatus" class="material-status">
+          Even material
+        </div>
+
+        <div class="captured-section">
+          <h3>White Lost</h3>
+          <p style="font-size:0.8rem; margin-top:0;">
+            Pieces captured by Black
+          </p>
+          <div id="whiteCaptured" class="captured-pieces">
+            None
+          </div>
+          <div id="whiteLostValue" class="captured-value">
+            Value lost: 0
+          </div>
+        </div>
+
+        <div class="captured-section" style="margin-top:20px;">
+          <h3>Black Lost</h3>
+          <p style="font-size:0.8rem; margin-top:0;">
+            Pieces captured by White
+          </p>
+          <div id="blackCaptured" class="captured-pieces">
+            None
+          </div>
+          <div id="blackLostValue" class="captured-value">
+            Value lost: 0
+          </div>
+        </div>
+
+        <p style="font-size:0.8rem; margin-top:20px;">
+          Pieces are ordered from most valuable to least valuable.
+        </p>
+      </aside>
+    </div>
 
   </div>
 
   <script>
     // ==========================================
-    // 1. GLOBAL VARIABLES & SETUP
+    // GLOBAL VARIABLES
     // ==========================================
     var board = null;
     var game = new Chess();
@@ -92,13 +131,49 @@
     var sourceSquare = null;
     var isHoldingC = false;
 
-    // AI state
     var aiThinking = false;
     var aiMoveTimeout = null;
     var aiWorker = null;
 
+    // Used for the material tracker.
+    var materialValues = {
+      p: 1,
+      n: 3,
+      b: 3,
+      r: 5,
+      q: 9
+    };
+
+    // Highest-value pieces appear first.
+    var pieceDisplayOrder = ['q', 'r', 'b', 'n', 'p'];
+
+    var pieceSymbols = {
+      w: {
+        p: '♙',
+        n: '♘',
+        b: '♗',
+        r: '♖',
+        q: '♕'
+      },
+      b: {
+        p: '♟',
+        n: '♞',
+        b: '♝',
+        r: '♜',
+        q: '♛'
+      }
+    };
+
+    var startingPieceCounts = {
+      p: 8,
+      n: 2,
+      b: 2,
+      r: 2,
+      q: 1
+    };
+
     // ==========================================
-    // 2. AI SETTINGS
+    // AI SETTINGS
     // ==========================================
     function isAIEnabled() {
       return $('#aiLevel').val() !== 'off';
@@ -117,24 +192,28 @@
           delay: 0,
           random: true
         },
+
         recruit: {
           depth: 0,
-          delay: 300,
+          delay: 100,
           random: true
         },
+
         operator: {
-          depth: 1,
-          delay: 350,
+          depth: 0,
+          delay: 125,
           random: false
         },
+
         specialist: {
-          depth: 2,
-          delay: 450,
+          depth: 1,
+          delay: 175,
           random: false
         },
+
         expert: {
-          depth: 3,
-          delay: 550,
+          depth: 2,
+          delay: 225,
           random: false
         }
       };
@@ -157,7 +236,7 @@
     }
 
     // ==========================================
-    // 3. AI WEB WORKER
+    // AI WEB WORKER
     // ==========================================
     function createAIWorker() {
       var workerCode = `
@@ -172,11 +251,11 @@
           k: 20000
         };
 
-        function getRandomMove(moves) {
+        function randomMove(moves) {
           return moves[Math.floor(Math.random() * moves.length)];
         }
 
-        function getMovePriority(move) {
+        function movePriority(move) {
           var score = 0;
 
           if (move.captured) {
@@ -198,23 +277,31 @@
           return score;
         }
 
-        function getOrderedMoves(chessGame) {
+        function orderedMoves(chessGame) {
           var moves = chessGame.moves({ verbose: true });
 
           moves.sort(function(a, b) {
-            return getMovePriority(b) - getMovePriority(a);
+            return movePriority(b) - movePriority(a);
           });
 
           return moves;
         }
 
-        function evaluateBoard(chessGame) {
+        function playMove(chessGame, move) {
+          chessGame.move({
+            from: move.from,
+            to: move.to,
+            promotion: move.promotion || 'q'
+          });
+        }
+
+        function evaluate(chessGame) {
           var boardState = chessGame.board();
           var score = 0;
 
           for (var row = 0; row < boardState.length; row++) {
-            for (var column = 0; column < boardState[row].length; column++) {
-              var piece = boardState[row][column];
+            for (var col = 0; col < boardState[row].length; col++) {
+              var piece = boardState[row][col];
 
               if (!piece) {
                 continue;
@@ -231,14 +318,6 @@
           }
 
           return score;
-        }
-
-        function makeMove(chessGame, move) {
-          return chessGame.move({
-            from: move.from,
-            to: move.to,
-            promotion: move.promotion || 'q'
-          });
         }
 
         function minimax(chessGame, depth, alpha, beta) {
@@ -258,16 +337,16 @@
           }
 
           if (depth === 0) {
-            return evaluateBoard(chessGame);
+            return evaluate(chessGame);
           }
 
-          var moves = getOrderedMoves(chessGame);
+          var moves = orderedMoves(chessGame);
 
           if (chessGame.turn() === 'b') {
             var bestBlackScore = -Infinity;
 
             for (var i = 0; i < moves.length; i++) {
-              makeMove(chessGame, moves[i]);
+              playMove(chessGame, moves[i]);
 
               var blackScore = minimax(
                 chessGame,
@@ -278,8 +357,13 @@
 
               chessGame.undo();
 
-              bestBlackScore = Math.max(bestBlackScore, blackScore);
-              alpha = Math.max(alpha, bestBlackScore);
+              if (blackScore > bestBlackScore) {
+                bestBlackScore = blackScore;
+              }
+
+              if (bestBlackScore > alpha) {
+                alpha = bestBlackScore;
+              }
 
               if (beta <= alpha) {
                 break;
@@ -292,7 +376,7 @@
           var bestWhiteScore = Infinity;
 
           for (var j = 0; j < moves.length; j++) {
-            makeMove(chessGame, moves[j]);
+            playMove(chessGame, moves[j]);
 
             var whiteScore = minimax(
               chessGame,
@@ -303,8 +387,13 @@
 
             chessGame.undo();
 
-            bestWhiteScore = Math.min(bestWhiteScore, whiteScore);
-            beta = Math.min(beta, bestWhiteScore);
+            if (whiteScore < bestWhiteScore) {
+              bestWhiteScore = whiteScore;
+            }
+
+            if (bestWhiteScore < beta) {
+              beta = bestWhiteScore;
+            }
 
             if (beta <= alpha) {
               break;
@@ -315,29 +404,31 @@
         }
 
         function findBestMove(chessGame, depth, randomMode) {
-          var moves = getOrderedMoves(chessGame);
+          var moves = orderedMoves(chessGame);
 
           if (moves.length === 0) {
             return null;
           }
 
           if (randomMode) {
-            return getRandomMove(moves);
+            return randomMove(moves);
           }
 
           var bestMoves = [];
           var bestScore = -Infinity;
+          var alpha = -Infinity;
+          var beta = Infinity;
 
           for (var i = 0; i < moves.length; i++) {
             var move = moves[i];
 
-            makeMove(chessGame, move);
+            playMove(chessGame, move);
 
             var score = minimax(
               chessGame,
               depth,
-              -Infinity,
-              Infinity
+              alpha,
+              beta
             );
 
             chessGame.undo();
@@ -348,9 +439,13 @@
             } else if (score === bestScore) {
               bestMoves.push(move);
             }
+
+            if (bestScore > alpha) {
+              alpha = bestScore;
+            }
           }
 
-          return getRandomMove(bestMoves);
+          return randomMove(bestMoves);
         }
 
         self.onmessage = function(event) {
@@ -358,7 +453,7 @@
             var data = event.data;
             var chessGame = new Chess(data.fen);
 
-            var bestMove = findBestMove(
+            var result = findBestMove(
               chessGame,
               data.depth,
               data.random
@@ -366,7 +461,7 @@
 
             self.postMessage({
               success: true,
-              move: bestMove
+              move: result
             });
           } catch (error) {
             self.postMessage({
@@ -382,9 +477,7 @@
         { type: 'application/javascript' }
       );
 
-      var workerURL = URL.createObjectURL(blob);
-
-      return new Worker(workerURL);
+      return new Worker(URL.createObjectURL(blob));
     }
 
     function scheduleAIMove() {
@@ -392,7 +485,6 @@
         return;
       }
 
-      stopAI();
       aiThinking = true;
 
       $status.html('Black AI is thinking...');
@@ -412,7 +504,10 @@
       }
 
       aiMoveTimeout = null;
-      aiWorker = createAIWorker();
+
+      if (!aiWorker) {
+        aiWorker = createAIWorker();
+      }
 
       aiWorker.onmessage = function(event) {
         var response = event.data;
@@ -437,15 +532,6 @@
     }
 
     function completeAIMove(move) {
-      if (aiWorker) {
-        aiWorker.terminate();
-        aiWorker = null;
-      }
-
-      /*
-        Charge the Black clock one final time before
-        the AI makes its move.
-      */
       syncActiveClock();
 
       if (!gameActive || game.game_over() || !isAITurn()) {
@@ -462,7 +548,8 @@
 
       lastClockUpdate = Date.now();
 
-      board.position(game.fen());
+      board.position(game.fen(), false);
+
 
       aiThinking = false;
       resetSelection();
@@ -470,11 +557,6 @@
     }
 
     function makeFallbackAIMove() {
-      if (aiWorker) {
-        aiWorker.terminate();
-        aiWorker = null;
-      }
-
       if (!isAITurn() || !gameActive) {
         aiThinking = false;
         return;
@@ -496,7 +578,123 @@
     }
 
     // ==========================================
-    // 4. TIMERS & UI UPDATES
+    // MATERIAL / CAPTURED PIECE TRACKER
+    // ==========================================
+    function getCurrentPieceCounts(color) {
+      var counts = {
+        p: 0,
+        n: 0,
+        b: 0,
+        r: 0,
+        q: 0
+      };
+
+      var boardState = game.board();
+
+      for (var row = 0; row < boardState.length; row++) {
+        for (var col = 0; col < boardState[row].length; col++) {
+          var piece = boardState[row][col];
+
+          if (!piece || piece.color !== color || piece.type === 'k') {
+            continue;
+          }
+
+          counts[piece.type]++;
+        }
+      }
+
+      return counts;
+    }
+
+    function getLostPieceCounts(color) {
+      var currentCounts = getCurrentPieceCounts(color);
+      var lostCounts = {
+        p: 0,
+        n: 0,
+        b: 0,
+        r: 0,
+        q: 0
+      };
+
+      for (var i = 0; i < pieceDisplayOrder.length; i++) {
+        var pieceType = pieceDisplayOrder[i];
+        var expectedCount = startingPieceCounts[pieceType];
+        var currentCount = currentCounts[pieceType];
+
+        lostCounts[pieceType] = Math.max(0, expectedCount - currentCount);
+      }
+
+      return lostCounts;
+    }
+
+    function getMaterialValue(pieceCounts) {
+      var value = 0;
+
+      for (var i = 0; i < pieceDisplayOrder.length; i++) {
+        var pieceType = pieceDisplayOrder[i];
+
+        value += pieceCounts[pieceType] * materialValues[pieceType];
+      }
+
+      return value;
+    }
+
+    function renderCapturedPieces(elementID, color, lostPieces) {
+      var html = '';
+      var pieceTotal = 0;
+
+      for (var i = 0; i < pieceDisplayOrder.length; i++) {
+        var pieceType = pieceDisplayOrder[i];
+        var numberLost = lostPieces[pieceType];
+
+        for (var j = 0; j < numberLost; j++) {
+          html += '<span class="captured-piece" title="' +
+            pieceType.toUpperCase() +
+            '">' +
+            pieceSymbols[color][pieceType] +
+            '</span>';
+
+          pieceTotal++;
+        }
+      }
+
+      if (pieceTotal === 0) {
+        html = 'None';
+      }
+
+      $('#' + elementID).html(html);
+    }
+
+    function updateMaterialTracker() {
+      var whiteLostPieces = getLostPieceCounts('w');
+      var blackLostPieces = getLostPieceCounts('b');
+
+      var whiteLostValue = getMaterialValue(whiteLostPieces);
+      var blackLostValue = getMaterialValue(blackLostPieces);
+
+      renderCapturedPieces('whiteCaptured', 'w', whiteLostPieces);
+      renderCapturedPieces('blackCaptured', 'b', blackLostPieces);
+
+      $('#whiteLostValue').text('Value lost: ' + whiteLostValue);
+      $('#blackLostValue').text('Value lost: ' + blackLostValue);
+
+      var materialDifference = blackLostValue - whiteLostValue;
+
+      if (materialDifference > 0) {
+        $('#materialStatus').text(
+          'White ahead by ' + materialDifference
+        );
+      } else if (materialDifference < 0) {
+        $('#materialStatus').text(
+          'Black ahead by ' + Math.abs(materialDifference)
+        );
+      } else {
+        $('#materialStatus').text('Even material');
+      }
+    }
+
+    // ==========================================
+    // TIMERS
     // ==========================================
     function formatTime(seconds) {
       if (seconds <= 0) {
@@ -610,6 +808,7 @@
       $status.html('Game over, ' + color + ' ran out of time.');
 
       updateTimerUI();
+      updateMaterialTracker();
     }
 
     function updateStatus() {
@@ -640,10 +839,11 @@
 
       $status.html(statusHTML);
       updateTimerUI();
+      updateMaterialTracker();
     }
 
     // ==========================================
-    // 5. BOARD INTERACTION & HIGHLIGHTING
+    // BOARD INTERACTION
     // ==========================================
     function removeHighlights() {
       $('#myBoard .square-55d63').css('background', '');
@@ -688,7 +888,8 @@
       if (isHoldingC) {
         stopAI();
         game.remove(square);
-        board.position(game.fen());
+        board.position(game.fen(), false);
+
         resetSelection();
         updateStatus();
         return;
@@ -700,7 +901,6 @@
 
       var piece = game.get(square);
 
-      // Select a piece.
       if (sourceSquare === null) {
         if (piece && piece.color === game.turn()) {
           sourceSquare = square;
@@ -711,7 +911,6 @@
         return;
       }
 
-      // Choose another friendly piece instead.
       if (piece && piece.color === game.turn()) {
         sourceSquare = square;
         removeHighlights();
@@ -719,7 +918,6 @@
         return;
       }
 
-      // Charge White's clock before changing turns.
       if (gameActive) {
         syncActiveClock();
 
@@ -739,7 +937,8 @@
         return;
       }
 
-      board.position(game.fen());
+      board.position(game.fen(), false);
+
 
       if (!gameActive) {
         gameActive = true;
@@ -786,7 +985,7 @@
     }
 
     // ==========================================
-    // 6. BUTTON CONTROLS
+    // BUTTON CONTROLS
     // ==========================================
     function undoMove() {
       stopAI();
@@ -797,7 +996,7 @@
 
       var movesToUndo = 1;
 
-      // Undo both the player move and AI response when possible.
+      // In an AI game, undo the AI move and the previous player move.
       if (isAIEnabled() && game.turn() === 'w' && game.history().length >= 2) {
         movesToUndo = 2;
       }
@@ -810,7 +1009,8 @@
         }
       }
 
-      board.position(game.fen());
+      board.position(game.fen(), false);
+
 
       if (game.history().length === 0) {
         gameActive = false;
@@ -839,7 +1039,7 @@
       blackTimeLeft = blackMinutes * 60;
 
       game.reset();
-      board.start();
+      board.start(false);
 
       gameActive = false;
       lastClockUpdate = null;
@@ -856,7 +1056,7 @@
     }
 
     // ==========================================
-    // 7. CHEAT KEY LISTENERS
+    // CHEAT KEY
     // ==========================================
     $(document).on('keydown', function(event) {
       if (event.key === 'c' || event.key === 'C') {
@@ -871,17 +1071,31 @@
     });
 
     // ==========================================
-    // 8. INITIALIZATION
+    // INITIALIZATION
     // ==========================================
     var config = {
       draggable: false,
       position: 'start',
+
+      /*
+        Chessboard.js animation is disabled because its temporary
+        animation clone can look like a teleporting duplicate piece.
+      */
+      appearSpeed: 0,
+      moveSpeed: 0,
+      snapbackSpeed: 0,
+      snapSpeed: 0,
+      trashSpeed: 0,
+
       onMouseoutSquare: onMouseoutSquare,
       onMouseoverSquare: onMouseoverSquare,
       pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
     };
 
     board = Chessboard('myBoard', config);
+
+    // Preload the AI worker so the first AI move is faster.
+    aiWorker = createAIWorker();
 
     $('#myBoard').on('click', '.square-55d63', function() {
       var square = $(this).attr('data-square');
