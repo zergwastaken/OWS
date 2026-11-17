@@ -1,8 +1,7 @@
 /* =========================================
-   Universal Game Styles & Layout (Optimized)
+   Universal Game Styles & Layout
    ========================================= */
 
-/* Use a modern CSS Reset to stabilize layouts */
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -30,14 +29,16 @@ body {
   justify-content: center;
   background-color: var(--bg-dark);
   color: var(--text-main);
-  
-  /* Height is exactly 100vh. Top space handled via padding. */
-  padding-top: 70px; 
+  min-height: 100vh;
+  padding-top: 70px;
 }
 
-/* --- Directory Tabs --- */
+/* =========================================
+   Directory Tabs
+   ========================================= */
+
 .directory-tabs {
-  position: fixed; 
+  position: fixed;
   top: 0;
   left: 0;
   width: 100%;
@@ -52,7 +53,7 @@ body {
 
 .directory-tabs h1 {
   font-size: clamp(1.1em, 2.5vh, 1.6em);
-  text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
   font-weight: 600;
 }
 
@@ -71,7 +72,10 @@ body {
   color: var(--text-main);
 }
 
-/* --- Buttons --- */
+/* =========================================
+   Buttons
+   ========================================= */
+
 button {
   padding: clamp(8px, 1.8vh, 12px) 24px;
   background-color: var(--primary-color);
@@ -84,27 +88,151 @@ button {
   transition: background-color 0.2s ease, transform 0.1s ease;
 }
 
-button:hover { 
-  background-color: var(--primary-hover); 
+button:hover {
+  background-color: var(--primary-hover);
 }
 
-button:active { 
-  transform: scale(0.97); 
+button:active {
+  transform: scale(0.97);
 }
 
-/* --- Game Container --- */
+#undoBtn {
+  background-color: var(--accent-orange);
+}
+
+#undoBtn:hover {
+  background-color: #d35400;
+}
+
+/* =========================================
+   Chess Board
+   ========================================= */
+
 .game-container {
   box-shadow: var(--shadow-main);
   border: 4px solid var(--bg-component);
   border-radius: 6px;
   background-color: #000;
-  max-width: 90vw;
-  max-height: 80vh; 
-  object-fit: contain; 
+  overflow: hidden;
 }
 
-/* --- Status & Setup Boxes --- */
-.status-box, .setup-box {
+/*
+  Prevent Flexbox from shrinking the board after Chessboard.js
+  calculates piece positions. This helps prevent jumping/flickering
+  pieces during move animations.
+*/
+.board-and-material {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 20px;
+  min-width: 0;
+}
+
+.board-and-material .game-container {
+  flex: 0 0 auto;
+  width: clamp(300px, 72vh, 52vw) !important;
+  max-width: none;
+  max-height: none;
+  line-height: 0;
+}
+
+/*
+  Chessboard.js uses these classes internally.
+  Explicit sizing behavior avoids conflicts with the global CSS reset.
+*/
+.board-b72b1 {
+  box-sizing: content-box;
+}
+
+.square-55d63 {
+  box-sizing: content-box;
+}
+
+.piece-417db {
+  box-sizing: border-box;
+}
+
+/* =========================================
+   Material / Captured Piece Panel
+   ========================================= */
+
+.material-panel {
+  flex: 0 0 190px;
+  width: 190px;
+  min-width: 190px;
+  max-width: 190px;
+  background: var(--bg-panel);
+  border: 1px solid #4b4b4b;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: var(--shadow-subtle);
+}
+
+.material-panel h2 {
+  font-size: 1.2rem;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.material-panel h3 {
+  color: var(--text-main);
+  font-size: 0.95rem;
+  margin-bottom: 4px;
+}
+
+.material-status {
+  background: var(--bg-component);
+  color: #ffffff;
+  border-radius: 6px;
+  font-weight: bold;
+  text-align: center;
+  padding: 9px 6px;
+  margin-bottom: 18px;
+}
+
+.captured-section {
+  border-top: 1px solid #4b4b4b;
+  padding-top: 12px;
+}
+
+.captured-section p {
+  color: var(--text-muted);
+  line-height: 1.25;
+}
+
+.captured-pieces {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  min-height: 32px;
+  margin-top: 8px;
+  color: var(--text-main);
+  font-size: 1.65rem;
+  line-height: 1;
+}
+
+.captured-piece {
+  display: inline-block;
+  width: 22px;
+  text-align: center;
+  text-shadow: 1px 1px 2px #000;
+}
+
+.captured-value {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-top: 8px;
+}
+
+/* =========================================
+   Status and Setup Boxes
+   ========================================= */
+
+.status-box,
+.setup-box {
   margin: 5px 0;
   font-size: clamp(0.95em, 2.2vh, 1.15em);
   font-weight: 600;
@@ -121,8 +249,9 @@ button:active {
   gap: 15px;
 }
 
-.setup-box input {
-  width: 55px;
+.setup-box input,
+.setup-box select {
+  width: 115px;
   padding: 6px;
   border-radius: 4px;
   border: 1px solid #555;
@@ -132,25 +261,29 @@ button:active {
   font-weight: bold;
 }
 
-/* --- Split Layout --- */
+/* =========================================
+   Main Layout
+   ========================================= */
+
 .split-layout {
   display: flex;
   flex-direction: row;
-  flex-wrap: nowrap; 
-  gap: clamp(20px, 4vw, 50px);
-  align-items: center; 
-  justify-content: center; 
+  flex-wrap: nowrap;
+  gap: clamp(20px, 3vw, 50px);
+  align-items: center;
+  justify-content: center;
   width: 100%;
-  max-width: 1300px;
-  height: calc(100vh - 90px); 
+  max-width: 1450px;
+  min-height: calc(100vh - 90px);
   padding: 10px;
 }
 
 .side-panel {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 15px;
-  align-items: stretch; 
+  align-items: stretch;
   min-width: 260px;
   max-width: 320px;
 }
@@ -161,14 +294,16 @@ button:active {
   font-size: clamp(1.8em, 4vh, 2.4em);
 }
 
-/* Side Panel Setup adjustments */
 .side-panel .setup-box {
   flex-direction: column;
   gap: 10px;
   align-items: stretch;
 }
 
-/* --- Timers --- */
+/* =========================================
+   Timers
+   ========================================= */
+
 .timers-container {
   display: flex;
   gap: 12px;
@@ -196,19 +331,62 @@ button:active {
 }
 
 .timer-label {
-  font-size: 0.45em;
   display: block;
   color: var(--text-muted);
+  font-size: 0.45em;
   text-transform: uppercase;
   margin-bottom: 3px;
   letter-spacing: 0.1em;
   font-family: 'Segoe UI', sans-serif;
 }
 
-/* Undo Button Custom accent */
-#undoBtn {
-  background-color: var(--accent-orange);
+/* =========================================
+   Smaller Screens
+   ========================================= */
+
+@media (max-width: 1150px) {
+  body {
+    justify-content: flex-start;
+  }
+
+  .split-layout {
+    flex-wrap: wrap;
+    height: auto;
+    padding-bottom: 30px;
+  }
+
+  .side-panel {
+    width: min(90vw, 650px);
+    max-width: 650px;
+  }
+
+  .board-and-material {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .board-and-material .game-container {
+    width: clamp(300px, 70vw, 650px) !important;
+  }
 }
-#undoBtn:hover {
-  background-color: #d35400;
+
+@media (max-width: 760px) {
+  .board-and-material {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .board-and-material .game-container {
+    width: min(92vw, 560px) !important;
+  }
+
+  .material-panel {
+    width: min(92vw, 560px);
+    min-width: min(92vw, 560px);
+    max-width: min(92vw, 560px);
+  }
+
+  .captured-pieces {
+    font-size: 1.9rem;
+  }
 }
