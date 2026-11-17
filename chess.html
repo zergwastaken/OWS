@@ -129,7 +129,6 @@
     var aiThinking = false;
     var aiMoveTimeout = null;
     var aiAbortController = null;
-
     var lastAIEngineDepth = null;
 
     var whiteSquareHighlight = '#a9a9a9';
@@ -191,34 +190,21 @@
           maxThinkingTime: 0
         },
 
-        /*
-          Beginner-level practice.
-        */
         recruit: {
           depth: 6,
           maxThinkingTime: 20
         },
 
-        /*
-          Strong casual player level.
-        */
         operator: {
           depth: 10,
           maxThinkingTime: 40
         },
 
-        /*
-          Very difficult tactical and positional play.
-        */
         specialist: {
           depth: 14,
           maxThinkingTime: 70
         },
 
-        /*
-          Maximum standard chess-api.com request settings.
-          This is intended to be extremely difficult.
-        */
         expert: {
           depth: 18,
           maxThinkingTime: 100
@@ -227,6 +213,7 @@
 
       return settings[level] || settings.operator;
     }
+
     function stopAI() {
       aiThinking = false;
 
@@ -239,6 +226,67 @@
         aiAbortController.abort();
         aiAbortController = null;
       }
+    }
+
+    function pauseGameForAIError(message) {
+      aiThinking = false;
+      gameActive = false;
+      lastClockUpdate = null;
+
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+
+      $('.timer').removeClass('active-timer');
+      $status.text('Black AI error: ' + message);
+
+      updateTimerUI();
+      updateMaterialTracker();
+
+      console.error('Black AI error:', message);
+    }
+
+    function validatePositionForAI(fen) {
+      var fenValidation = Chess.validate_fen(fen);
+
+      if (!fenValidation.valid) {
+        return {
+          valid: false,
+          error: fenValidation.error
+        };
+      }
+
+      var boardState = game.board();
+      var whiteKings = 0;
+      var blackKings = 0;
+
+      for (var row = 0; row < boardState.length; row++) {
+        for (var col = 0; col < boardState[row].length; col++) {
+          var piece = boardState[row][col];
+
+          if (!piece || piece.type !== 'k') {
+            continue;
+          }
+
+          if (piece.color === 'w') {
+            whiteKings++;
+          } else {
+            blackKings++;
+          }
+        }
+      }
+
+      if (whiteKings !== 1 || blackKings !== 1) {
+        return {
+          valid: false,
+          error: 'The board must have exactly one White king and one Black king.'
+        };
+      }
+
+      return {
+        valid: true
+      };
     }
 
     function scheduleAIMove() {
@@ -268,8 +316,18 @@
       aiMoveTimeout = null;
 
       var positionAtRequest = game.fen();
-      var controller = new AbortController();
+      var validation = validatePositionForAI(positionAtRequest);
 
+      console.log('FEN being sent to Chess API:', positionAtRequest);
+
+      if (!validation.valid) {
+        pauseGameForAIError(
+          'Invalid board position. ' + validation.error
+        );
+        return;
+      }
+
+      var controller = new AbortController();
       aiAbortController = controller;
 
       try {
@@ -287,10 +345,6 @@
           })
         });
 
-        /*
-          Read the response as text first. This lets us show useful
-          diagnostics even if the API returns HTML or a non-JSON error.
-        */
         var responseText = await response.text();
 
         if (!response.ok) {
@@ -317,10 +371,6 @@
         console.log('Requested depth:', config.depth);
         console.log('Actual returned depth:', data.depth);
 
-        /*
-          Ignore an old API response if the game changed while
-          the API was still calculating.
-        */
         if (
           !aiThinking ||
           !gameActive ||
@@ -338,6 +388,8 @@
           );
         }
 
+        lastAIEngineDepth = data.depth || 'unknown';
+
         applyAIMove({
           from: data.from,
           to: data.to,
@@ -349,28 +401,7 @@
           return;
         }
 
-        console.error('Chess API error:', error);
-
-        aiThinking = false;
-
-        /*
-          Pause the game instead of making a random weak move.
-          The displayed error will help identify the actual problem.
-        */
-        gameActive = false;
-
-        if (timerInterval) {
-          clearInterval(timerInterval);
-          timerInterval = null;
-        }
-
-        $('.timer').removeClass('active-timer');
-
-        $status.text(
-          'Black AI error: ' + error.message
-        );
-
-        updateTimerUI();
+        pauseGameForAIError(error.message);
 
       } finally {
         if (aiAbortController === controller) {
@@ -395,41 +426,20 @@
       });
 
       if (appliedMove === null) {
-        aiThinking = false;
-        makeFallbackAIMove();
+        pauseGameForAIError(
+          'The AI returned an illegal move: ' + move.from + ' to ' + move.to
+        );
         return;
       }
 
       lastClockUpdate = Date.now();
 
-      // false disables the Chessboard.js duplicate-piece animation.
+      // false disables Chessboard.js duplicate/teleport animation.
       board.position(game.fen(), false);
 
       aiThinking = false;
       resetSelection();
       updateStatus();
-    }
-
-    function makeFallbackAIMove() {
-      aiThinking = false;
-      gameActive = false;
-
-      if (timerInterval) {
-        clearInterval(timerInterval);
-        timerInterval = null;
-      }
-
-      $('.timer').removeClass('active-timer');
-
-      $status.text(
-        'Black AI did not receive a valid move from chess-api.com.'
-      );
-
-      updateTimerUI();
-
-      console.error(
-        'Chess API failed or returned an invalid response. No fallback move was made.'
-      );
     }
 
     // ==========================================
@@ -489,7 +499,6 @@
 
       for (var i = 0; i < pieceDisplayOrder.length; i++) {
         var pieceType = pieceDisplayOrder[i];
-
         value += pieceCounts[pieceType] * materialValues[pieceType];
       }
 
@@ -682,8 +691,13 @@
         stopAI();
       } else if (aiThinking && isAITurn()) {
         statusHTML = 'Black AI is thinking...';
-      } else if (isAIEnabled() && game.turn() === 'w' && lastAIEngineDepth) {
-        statusHTML = 'White to move — Black AI searched depth ' + lastAIEngineDepth;
+      } else if (
+        isAIEnabled() &&
+        game.turn() === 'w' &&
+        lastAIEngineDepth !== null
+      ) {
+        statusHTML = 'White to move — Black AI searched depth ' +
+          lastAIEngineDepth;
       } else {
         if (isAIEnabled() && game.turn() === 'b') {
           statusHTML = 'Black AI to move';
@@ -743,8 +757,21 @@
     }
 
     function handleSquareClick(square) {
-      // Hold C and click a square to remove a piece for practice.
+      /*
+        The C-key board editor is available only in Two Players mode.
+        Arbitrary piece deletion can create invalid positions that an
+        external chess engine cannot evaluate.
+      */
       if (isHoldingC) {
+        if (isAIEnabled()) {
+          $status.text(
+            'Board editing is disabled while playing against the AI. Restart to return to a valid game position.'
+          );
+
+          resetSelection();
+          return;
+        }
+
         stopAI();
         game.remove(square);
         board.position(game.fen(), false);
@@ -853,7 +880,6 @@
 
       var movesToUndo = 1;
 
-      // If playing an AI game, undo both player and AI moves.
       if (isAIEnabled() && game.turn() === 'w' && game.history().length >= 2) {
         movesToUndo = 2;
       }
@@ -894,6 +920,8 @@
       whiteTimeLeft = whiteMinutes * 60;
       blackTimeLeft = blackMinutes * 60;
 
+      lastAIEngineDepth = null;
+
       game.reset();
       board.start(false);
 
@@ -912,7 +940,7 @@
     }
 
     // ==========================================
-    // CHEAT KEY
+    // CHEAT KEY LISTENERS
     // ==========================================
     $(document).on('keydown', function(event) {
       if (event.key === 'c' || event.key === 'C') {
@@ -933,7 +961,10 @@
       draggable: false,
       position: 'start',
 
-      // Prevent duplicate/teleport piece animation.
+      /*
+        Disable built-in Chessboard.js animations because the
+        temporary animation clone can appear as a teleporting piece.
+      */
       appearSpeed: 0,
       moveSpeed: 0,
       snapbackSpeed: 0,
