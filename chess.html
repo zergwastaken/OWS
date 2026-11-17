@@ -147,20 +147,8 @@
     var pieceDisplayOrder = ['q', 'r', 'b', 'n', 'p'];
 
     var pieceSymbols = {
-      w: {
-        p: '♙',
-        n: '♘',
-        b: '♗',
-        r: '♖',
-        q: '♕'
-      },
-      b: {
-        p: '♟',
-        n: '♞',
-        b: '♝',
-        r: '♜',
-        q: '♛'
-      }
+      w: { p: '♙', n: '♘', b: '♗', r: '♖', q: '♕' },
+      b: { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛' }
     };
 
     var startingPieceCounts = {
@@ -172,7 +160,7 @@
     };
 
     // ==========================================
-    // AI SETTINGS
+    // AI SETTINGS & BUILT-IN FALLBACK ENGINE
     // ==========================================
     function isAIEnabled() {
       return $('#aiLevel').val() !== 'off';
@@ -186,33 +174,134 @@
       var level = $('#aiLevel').val();
 
       var settings = {
-        off: {
-          depth: 0,
-          maxThinkingTime: 0
-        },
-
-        recruit: {
-          depth: 6,
-          maxThinkingTime: 20
-        },
-
-        operator: {
-          depth: 10,
-          maxThinkingTime: 40
-        },
-
-        specialist: {
-          depth: 14,
-          maxThinkingTime: 70
-        },
-
-        expert: {
-          depth: 18,
-          maxThinkingTime: 100
-        }
+        off:        { depth: 0,  maxThinkingTime: 0,   localDepth: 0 },
+        recruit:    { depth: 6,  maxThinkingTime: 20,  localDepth: 1 },
+        operator:   { depth: 10, maxThinkingTime: 40,  localDepth: 2 },
+        specialist: { depth: 14, maxThinkingTime: 70,  localDepth: 3 },
+        expert:     { depth: 18, maxThinkingTime: 100, localDepth: 4 }
       };
 
       return settings[level] || settings.operator;
+    }
+
+    // Piece-square bonus tables for local AI fallback
+    var pstPawn = [
+      [0,  0,  0,  0,  0,  0,  0,  0],
+      [50, 50, 50, 50, 50, 50, 50, 50],
+      [10, 10, 20, 30, 30, 20, 10, 10],
+      [5,  5, 10, 25, 25, 10,  5,  5],
+      [0,  0,  0, 20, 20,  0,  0,  0],
+      [5, -5,-10,  0,  0,-10, -5,  5],
+      [5, 10, 10,-20,-20, 10, 10,  5],
+      [0,  0,  0,  0,  0,  0,  0,  0]
+    ];
+
+    var pstKnight = [
+      [-50,-40,-30,-30,-30,-30,-40,-50],
+      [-40,-20,  0,  0,  0,  0,-20,-40],
+      [-30,  0, 10, 15, 15, 10,  0,-30],
+      [-30,  5, 15, 20, 20, 15,  5,-30],
+      [-30,  0, 15, 20, 20, 15,  0,-30],
+      [-30,  5, 10, 15, 15, 10,  5,-30],
+      [-40,-20,  0,  5,  5,  0,-20,-40],
+      [-50,-40,-30,-30,-30,-30,-40,-50]
+    ];
+
+    function evaluateBoardLocal() {
+      var boardState = game.board();
+      var totalEvaluation = 0;
+      var weights = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
+
+      for (var r = 0; r < 8; r++) {
+        for (var c = 0; c < 8; c++) {
+          var piece = boardState[r][c];
+          if (!piece) continue;
+
+          var val = weights[piece.type] || 0;
+          var rowIdx = piece.color === 'w' ? r : (7 - r);
+
+          if (piece.type === 'p') val += pstPawn[rowIdx][c];
+          if (piece.type === 'n') val += pstKnight[rowIdx][c];
+
+          totalEvaluation += (piece.color === 'b') ? val : -val;
+        }
+      }
+      return totalEvaluation;
+    }
+
+    function minimax(depth, alpha, beta, isMaximizing) {
+      if (depth === 0 || game.game_over()) {
+        return evaluateBoardLocal();
+      }
+
+      var moves = game.moves({ verbose: true });
+
+      if (isMaximizing) {
+        var maxEval = -Infinity;
+        for (var i = 0; i < moves.length; i++) {
+          game.move(moves[i]);
+          var evaluation = minimax(depth - 1, alpha, beta, false);
+          game.undo();
+          if (evaluation > maxEval) maxEval = evaluation;
+          if (evaluation > alpha) alpha = evaluation;
+          if (beta <= alpha) break;
+        }
+        return maxEval;
+      } else {
+        var minEval = Infinity;
+        for (var j = 0; j < moves.length; j++) {
+          game.move(moves[j]);
+          var evaluationMin = minimax(depth - 1, alpha, beta, true);
+          game.undo();
+          if (evaluationMin < minEval) minEval = evaluationMin;
+          if (evaluationMin < beta) beta = evaluationMin;
+          if (beta <= alpha) break;
+        }
+        return minEval;
+      }
+    }
+
+    function computeLocalAIMove(localDepth) {
+      var moves = game.moves({ verbose: true });
+      if (moves.length === 0) return null;
+
+      // Shuffle moves slightly so equal-value moves have variety
+      moves.sort(function() { return 0.5 - Math.random(); });
+
+      var bestMove = moves[0];
+      var bestValue = -Infinity;
+
+      for (var i = 0; i < moves.length; i++) {
+        game.move(moves[i]);
+        var boardValue = minimax(localDepth - 1, -Infinity, Infinity, false);
+        game.undo();
+
+        if (boardValue > bestValue) {
+          bestValue = boardValue;
+          bestMove = moves[i];
+        }
+      }
+
+      return {
+        from: bestMove.from,
+        to: bestMove.to,
+        promotion: bestMove.promotion || 'q',
+        depth: localDepth + ' (Local Engine)'
+      };
+    }
+
+    function runFallbackLocalAI(config) {
+      if (!aiThinking || !gameActive || !isAITurn()) return;
+
+      closeAISocket();
+      var fallbackMove = computeLocalAIMove(config.localDepth || 2);
+
+      if (fallbackMove) {
+        lastAIEngineDepth = fallbackMove.depth;
+        applyAIMove(fallbackMove);
+      } else {
+        pauseGameForAIError('No legal moves available.');
+      }
     }
 
     function stopAI() {
@@ -224,21 +313,7 @@
         aiMoveTimeout = null;
       }
 
-      if (aiSocketTimeout) {
-        clearTimeout(aiSocketTimeout);
-        aiSocketTimeout = null;
-      }
-
-      if (aiSocket) {
-        if (
-          aiSocket.readyState === WebSocket.OPEN ||
-          aiSocket.readyState === WebSocket.CONNECTING
-        ) {
-          aiSocket.close();
-        }
-
-        aiSocket = null;
-      }
+      closeAISocket();
     }
 
     function closeAISocket() {
@@ -248,6 +323,11 @@
       }
 
       if (aiSocket) {
+        aiSocket.onopen = null;
+        aiSocket.onmessage = null;
+        aiSocket.onerror = null;
+        aiSocket.onclose = null;
+
         if (
           aiSocket.readyState === WebSocket.OPEN ||
           aiSocket.readyState === WebSocket.CONNECTING
@@ -272,7 +352,6 @@
       }
 
       $('.timer').removeClass('active-timer');
-
       $status.text('Black AI error: ' + message);
 
       updateTimerUI();
@@ -282,7 +361,8 @@
     }
 
     function validatePositionForAI(fen) {
-      var fenValidation = Chess.validate_fen(fen);
+      // FIXED: game.validate_fen(fen) instead of Chess.validate_fen(fen)
+      var fenValidation = game.validate_fen(fen);
 
       if (!fenValidation.valid) {
         return {
@@ -353,9 +433,7 @@
       var validation = validatePositionForAI(positionAtRequest);
 
       if (!validation.valid) {
-        pauseGameForAIError(
-          'Invalid board position. ' + validation.error
-        );
+        pauseGameForAIError('Invalid board position. ' + validation.error);
         return;
       }
 
@@ -397,9 +475,8 @@
           }
 
           if (data.type === 'error') {
-            pauseGameForAIError(
-              data.error || 'Chess API returned an error.'
-            );
+            console.warn('Chess API returned error, using local AI fallback:', data.error);
+            runFallbackLocalAI(config);
             return;
           }
 
@@ -414,8 +491,7 @@
             lastAIEngineDepth = data.depth || 'unknown';
 
             $status.html(
-              'Black AI thinking... depth ' +
-              lastAIEngineDepth
+              'Black AI thinking... depth ' + lastAIEngineDepth
             );
           }
 
@@ -427,20 +503,15 @@
             isAITurn()
           ) {
             var bestMove = aiLatestMove;
-
             closeAISocket();
             applyAIMove(bestMove);
           }
         };
 
         aiSocket.onerror = function() {
-          if (!aiThinking) {
-            return;
-          }
-
-          pauseGameForAIError(
-            'Unable to connect to chess-api.com.'
-          );
+          if (!aiThinking) return;
+          console.warn('WebSocket blocked or unreachable. Switching to local AI fallback.');
+          runFallbackLocalAI(config);
         };
 
         aiSocket.onclose = function() {
@@ -450,19 +521,16 @@
 
           if (aiLatestMove) {
             var closingMove = aiLatestMove;
-
             closeAISocket();
             applyAIMove(closingMove);
           } else {
-            pauseGameForAIError(
-              'Chess API connection closed before returning a move.'
-            );
+            runFallbackLocalAI(config);
           }
         };
 
         /*
           The API may continue searching for a final bestmove.
-          After 12 seconds, use the strongest candidate it has sent.
+          After 5 seconds, use the strongest candidate or local fallback.
         */
         aiSocketTimeout = setTimeout(function() {
           if (!aiThinking || !gameActive || !isAITurn()) {
@@ -471,20 +539,15 @@
 
           if (aiLatestMove) {
             var timeoutMove = aiLatestMove;
-
             closeAISocket();
             applyAIMove(timeoutMove);
           } else {
-            pauseGameForAIError(
-              'Chess API did not return a move within 12 seconds.'
-            );
+            runFallbackLocalAI(config);
           }
-        }, 12000);
+        }, 5000);
 
       } catch (error) {
-        pauseGameForAIError(
-          'Unable to start the Chess API connection.'
-        );
+        runFallbackLocalAI(config);
       }
     }
 
@@ -505,16 +568,12 @@
 
       if (appliedMove === null) {
         pauseGameForAIError(
-          'The AI returned an illegal move: ' +
-          move.from +
-          ' to ' +
-          move.to
+          'The AI returned an illegal move: ' + move.from + ' to ' + move.to
         );
         return;
       }
 
       lastClockUpdate = Date.now();
-
       board.position(game.fen(), false);
 
       aiThinking = false;
@@ -528,14 +587,7 @@
     // MATERIAL TRACKER
     // ==========================================
     function getCurrentPieceCounts(color) {
-      var counts = {
-        p: 0,
-        n: 0,
-        b: 0,
-        r: 0,
-        q: 0
-      };
-
+      var counts = { p: 0, n: 0, b: 0, r: 0, q: 0 };
       var boardState = game.board();
 
       for (var row = 0; row < boardState.length; row++) {
@@ -555,18 +607,10 @@
 
     function getLostPieceCounts(color) {
       var currentCounts = getCurrentPieceCounts(color);
-
-      var lostCounts = {
-        p: 0,
-        n: 0,
-        b: 0,
-        r: 0,
-        q: 0
-      };
+      var lostCounts = { p: 0, n: 0, b: 0, r: 0, q: 0 };
 
       for (var i = 0; i < pieceDisplayOrder.length; i++) {
         var pieceType = pieceDisplayOrder[i];
-
         lostCounts[pieceType] = Math.max(
           0,
           startingPieceCounts[pieceType] - currentCounts[pieceType]
@@ -629,13 +673,9 @@
       var materialDifference = blackLostValue - whiteLostValue;
 
       if (materialDifference > 0) {
-        $('#materialStatus').text(
-          'White ahead by ' + materialDifference
-        );
+        $('#materialStatus').text('White ahead by ' + materialDifference);
       } else if (materialDifference < 0) {
-        $('#materialStatus').text(
-          'Black ahead by ' + Math.abs(materialDifference)
-        );
+        $('#materialStatus').text('Black ahead by ' + Math.abs(materialDifference));
       } else {
         $('#materialStatus').text('Even material');
       }
