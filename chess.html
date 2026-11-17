@@ -124,11 +124,12 @@
     var lastClockUpdate = null;
 
     var sourceSquare = null;
-    var isHoldingC = false;
 
     var aiThinking = false;
     var aiMoveTimeout = null;
-    var aiAbortController = null;
+    var aiSocket = null;
+    var aiSocketTimeout = null;
+    var aiLatestMove = null;
     var lastAIEngineDepth = null;
 
     var whiteSquareHighlight = '#a9a9a9';
@@ -216,15 +217,45 @@
 
     function stopAI() {
       aiThinking = false;
+      aiLatestMove = null;
 
       if (aiMoveTimeout) {
         clearTimeout(aiMoveTimeout);
         aiMoveTimeout = null;
       }
 
-      if (aiAbortController) {
-        aiAbortController.abort();
-        aiAbortController = null;
+      if (aiSocketTimeout) {
+        clearTimeout(aiSocketTimeout);
+        aiSocketTimeout = null;
+      }
+
+      if (aiSocket) {
+        if (
+          aiSocket.readyState === WebSocket.OPEN ||
+          aiSocket.readyState === WebSocket.CONNECTING
+        ) {
+          aiSocket.close();
+        }
+
+        aiSocket = null;
+      }
+    }
+
+    function closeAISocket() {
+      if (aiSocketTimeout) {
+        clearTimeout(aiSocketTimeout);
+        aiSocketTimeout = null;
+      }
+
+      if (aiSocket) {
+        if (
+          aiSocket.readyState === WebSocket.OPEN ||
+          aiSocket.readyState === WebSocket.CONNECTING
+        ) {
+          aiSocket.close();
+        }
+
+        aiSocket = null;
       }
     }
 
@@ -233,12 +264,15 @@
       gameActive = false;
       lastClockUpdate = null;
 
+      closeAISocket();
+
       if (timerInterval) {
         clearInterval(timerInterval);
         timerInterval = null;
       }
 
       $('.timer').removeClass('active-timer');
+
       $status.text('Black AI error: ' + message);
 
       updateTimerUI();
@@ -303,11 +337,11 @@
       var config = getAIConfig();
 
       aiMoveTimeout = setTimeout(function() {
-        requestChessApiMove(config);
+        requestChessApiWebSocketMove(config);
       }, 150);
     }
 
-    async function requestChessApiMove(config) {
+    function requestChessApiWebSocketMove(config) {
       if (!isAITurn() || !gameActive || game.game_over()) {
         aiThinking = false;
         return;
@@ -318,8 +352,6 @@
       var positionAtRequest = game.fen();
       var validation = validatePositionForAI(positionAtRequest);
 
-      console.log('FEN being sent to Chess API:', positionAtRequest);
-
       if (!validation.valid) {
         pauseGameForAIError(
           'Invalid board position. ' + validation.error
@@ -327,86 +359,132 @@
         return;
       }
 
-      var controller = new AbortController();
-      aiAbortController = controller;
+      aiLatestMove = null;
+
+      var taskID = 'ai-' +
+        Date.now() +
+        '-' +
+        Math.random().toString(36).substring(2, 9);
 
       try {
-        var response = await fetch('https://chess-api.com/v1', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          signal: controller.signal,
-          body: JSON.stringify({
+        aiSocket = new WebSocket('wss://chess-api.com/v1');
+
+        aiSocket.onopen = function() {
+          if (!aiSocket || !aiThinking || !isAITurn()) {
+            return;
+          }
+
+          aiSocket.send(JSON.stringify({
             fen: positionAtRequest,
             depth: config.depth,
             maxThinkingTime: config.maxThinkingTime,
-            variants: 1
-          })
-        });
+            variants: 1,
+            taskId: taskID
+          }));
+        };
 
-        var responseText = await response.text();
+        aiSocket.onmessage = function(event) {
+          var data;
 
-        if (!response.ok) {
-          throw new Error(
-            'Chess API returned HTTP ' +
-            response.status +
-            ': ' +
-            responseText.substring(0, 180)
+          try {
+            data = JSON.parse(event.data);
+          } catch (error) {
+            return;
+          }
+
+          if (data.taskId && data.taskId !== taskID) {
+            return;
+          }
+
+          if (data.type === 'error') {
+            pauseGameForAIError(
+              data.error || 'Chess API returned an error.'
+            );
+            return;
+          }
+
+          if (data.from && data.to) {
+            aiLatestMove = {
+              from: data.from,
+              to: data.to,
+              promotion: data.promotion || 'q',
+              depth: data.depth || 'unknown'
+            };
+
+            lastAIEngineDepth = data.depth || 'unknown';
+
+            $status.html(
+              'Black AI thinking... depth ' +
+              lastAIEngineDepth
+            );
+          }
+
+          if (
+            data.type === 'bestmove' &&
+            aiLatestMove &&
+            aiThinking &&
+            gameActive &&
+            isAITurn()
+          ) {
+            var bestMove = aiLatestMove;
+
+            closeAISocket();
+            applyAIMove(bestMove);
+          }
+        };
+
+        aiSocket.onerror = function() {
+          if (!aiThinking) {
+            return;
+          }
+
+          pauseGameForAIError(
+            'Unable to connect to chess-api.com.'
           );
-        }
+        };
 
-        var data;
+        aiSocket.onclose = function() {
+          if (!aiThinking || !gameActive || !isAITurn()) {
+            return;
+          }
 
-        try {
-          data = JSON.parse(responseText);
-        } catch (jsonError) {
-          throw new Error(
-            'Chess API returned invalid JSON: ' +
-            responseText.substring(0, 180)
-          );
-        }
+          if (aiLatestMove) {
+            var closingMove = aiLatestMove;
 
-        console.log('Chess API response:', data);
-        console.log('Requested depth:', config.depth);
-        console.log('Actual returned depth:', data.depth);
+            closeAISocket();
+            applyAIMove(closingMove);
+          } else {
+            pauseGameForAIError(
+              'Chess API connection closed before returning a move.'
+            );
+          }
+        };
 
-        if (
-          !aiThinking ||
-          !gameActive ||
-          game.game_over() ||
-          !isAITurn() ||
-          game.fen() !== positionAtRequest
-        ) {
-          return;
-        }
+        /*
+          The API may continue searching for a final bestmove.
+          After 12 seconds, use the strongest candidate it has sent.
+        */
+        aiSocketTimeout = setTimeout(function() {
+          if (!aiThinking || !gameActive || !isAITurn()) {
+            return;
+          }
 
-        if (!data.from || !data.to) {
-          throw new Error(
-            'Chess API returned no valid move. Response: ' +
-            responseText.substring(0, 180)
-          );
-        }
+          if (aiLatestMove) {
+            var timeoutMove = aiLatestMove;
 
-        lastAIEngineDepth = data.depth || 'unknown';
-
-        applyAIMove({
-          from: data.from,
-          to: data.to,
-          promotion: data.promotion || 'q'
-        });
+            closeAISocket();
+            applyAIMove(timeoutMove);
+          } else {
+            pauseGameForAIError(
+              'Chess API did not return a move within 12 seconds.'
+            );
+          }
+        }, 12000);
 
       } catch (error) {
-        if (error.name === 'AbortError') {
-          return;
-        }
-
-        pauseGameForAIError(error.message);
-
-      } finally {
-        if (aiAbortController === controller) {
-          aiAbortController = null;
-        }
+        pauseGameForAIError(
+          'Unable to start the Chess API connection.'
+        );
       }
     }
 
@@ -427,17 +505,21 @@
 
       if (appliedMove === null) {
         pauseGameForAIError(
-          'The AI returned an illegal move: ' + move.from + ' to ' + move.to
+          'The AI returned an illegal move: ' +
+          move.from +
+          ' to ' +
+          move.to
         );
         return;
       }
 
       lastClockUpdate = Date.now();
 
-      // false disables Chessboard.js duplicate/teleport animation.
       board.position(game.fen(), false);
 
       aiThinking = false;
+      aiLatestMove = null;
+
       resetSelection();
       updateStatus();
     }
@@ -757,29 +839,6 @@
     }
 
     function handleSquareClick(square) {
-      /*
-        The C-key board editor is available only in Two Players mode.
-        Arbitrary piece deletion can create invalid positions that an
-        external chess engine cannot evaluate.
-      */
-      if (isHoldingC) {
-        if (isAIEnabled()) {
-          $status.text(
-            'Board editing is disabled while playing against the AI. Restart to return to a valid game position.'
-          );
-
-          resetSelection();
-          return;
-        }
-
-        stopAI();
-        game.remove(square);
-        board.position(game.fen(), false);
-        resetSelection();
-        updateStatus();
-        return;
-      }
-
       if (game.game_over() || aiThinking || isAITurn()) {
         return;
       }
@@ -940,31 +999,13 @@
     }
 
     // ==========================================
-    // CHEAT KEY LISTENERS
-    // ==========================================
-    $(document).on('keydown', function(event) {
-      if (event.key === 'c' || event.key === 'C') {
-        isHoldingC = true;
-      }
-    });
-
-    $(document).on('keyup', function(event) {
-      if (event.key === 'c' || event.key === 'C') {
-        isHoldingC = false;
-      }
-    });
-
-    // ==========================================
     // INITIALIZATION
     // ==========================================
     var config = {
       draggable: false,
       position: 'start',
 
-      /*
-        Disable built-in Chessboard.js animations because the
-        temporary animation clone can appear as a teleporting piece.
-      */
+      // Disable duplicate or teleport-style animations.
       appearSpeed: 0,
       moveSpeed: 0,
       snapbackSpeed: 0,
