@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <title>OWS - Chess</title>
   <link rel="stylesheet" href="style.css">
-  
+
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" />
+  <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
   <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 </head>
@@ -14,13 +14,13 @@
 
   <script src="nav.js"></script>
   <div id="nav-placeholder"></div>
-  
-<div class="split-layout">
-    
+
+  <div class="split-layout">
+
     <!-- LEFT SIDE: Controls and Timers -->
     <div class="side-panel">
       <h1>Chess</h1>
-      
+
       <div class="status-box" id="status">White to move</div>
 
       <div class="timers-container">
@@ -28,6 +28,7 @@
           <span class="timer-label">White Time</span>
           <span class="time-text">10:00</span>
         </div>
+
         <div id="blackTimer" class="timer">
           <span class="timer-label">Black Time</span>
           <span class="time-text">10:00</span>
@@ -35,21 +36,37 @@
       </div>
 
       <div class="setup-box">
-        <div style="display:flex; justify-content:space-between; width:100%; align-items: center;">
-          <label>White (m): </label>
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+          <label for="whiteMins">White (m):</label>
           <input type="number" id="whiteMins" value="10" min="0">
         </div>
-        <div style="display:flex; justify-content:space-between; width:100%; align-items: center;">
-          <label>Black (m): </label>
+
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+          <label for="blackMins">Black (m):</label>
           <input type="number" id="blackMins" value="10" min="0">
+        </div>
+
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+          <label for="aiLevel">Black Opponent:</label>
+          <select id="aiLevel">
+            <option value="off">Two Players</option>
+            <option value="recruit">Recruit AI</option>
+            <option value="operator" selected>Operator AI</option>
+            <option value="specialist">Specialist AI</option>
+            <option value="expert">Expert AI</option>
+          </select>
         </div>
       </div>
 
       <button id="undoBtn">Undo Last Move</button>
       <button id="resetBtn">Apply Settings & Restart</button>
+
+      <p id="aiHelp" style="font-size:0.85rem; margin-top:12px;">
+        Select an AI tier to practice playing as White. The AI controls Black.
+      </p>
     </div>
 
-    <!-- RIGHT SIDE: The Maximized Chess Board -->
+    <!-- RIGHT SIDE: Chess Board -->
     <div id="myBoard" class="game-container" style="width: clamp(300px, 80vh, 70vw);"></div>
 
   </div>
@@ -61,36 +78,452 @@
     var board = null;
     var game = new Chess();
     var $status = $('#status');
-    
+
     var whiteTimeLeft = 600;
     var blackTimeLeft = 600;
     var timerInterval = null;
     var gameActive = false;
-    
+    var lastClockUpdate = null;
+
     var whiteSquareHighlight = '#a9a9a9';
     var blackSquareHighlight = '#696969';
-    var selectedSquareHighlight = '#71d473'; // Light green for selected piece
+    var selectedSquareHighlight = '#71d473';
 
-    // Track state for click-to-move
     var sourceSquare = null;
-
-    // Track the cheat key
     var isHoldingC = false;
 
+    // AI state
+    var aiThinking = false;
+    var aiMoveTimeout = null;
+    var aiWorker = null;
+
     // ==========================================
-    // 2. TIMERS & UI UPDATES
+    // 2. AI SETTINGS
+    // ==========================================
+    function isAIEnabled() {
+      return $('#aiLevel').val() !== 'off';
+    }
+
+    function isAITurn() {
+      return isAIEnabled() && game.turn() === 'b';
+    }
+
+    function getAIConfig() {
+      var level = $('#aiLevel').val();
+
+      var settings = {
+        off: {
+          depth: 0,
+          delay: 0,
+          random: true
+        },
+        recruit: {
+          depth: 0,
+          delay: 300,
+          random: true
+        },
+        operator: {
+          depth: 1,
+          delay: 350,
+          random: false
+        },
+        specialist: {
+          depth: 2,
+          delay: 450,
+          random: false
+        },
+        expert: {
+          depth: 3,
+          delay: 550,
+          random: false
+        }
+      };
+
+      return settings[level] || settings.operator;
+    }
+
+    function stopAI() {
+      aiThinking = false;
+
+      if (aiMoveTimeout) {
+        clearTimeout(aiMoveTimeout);
+        aiMoveTimeout = null;
+      }
+
+      if (aiWorker) {
+        aiWorker.terminate();
+        aiWorker = null;
+      }
+    }
+
+    // ==========================================
+    // 3. AI WEB WORKER
+    // ==========================================
+    function createAIWorker() {
+      var workerCode = `
+        importScripts('https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js');
+
+        var pieceValues = {
+          p: 100,
+          n: 320,
+          b: 330,
+          r: 500,
+          q: 900,
+          k: 20000
+        };
+
+        function getRandomMove(moves) {
+          return moves[Math.floor(Math.random() * moves.length)];
+        }
+
+        function getMovePriority(move) {
+          var score = 0;
+
+          if (move.captured) {
+            score += pieceValues[move.captured] || 0;
+          }
+
+          if (move.promotion) {
+            score += pieceValues[move.promotion] || 0;
+          }
+
+          if (move.san && move.san.indexOf('+') !== -1) {
+            score += 40;
+          }
+
+          if (move.san && move.san.indexOf('#') !== -1) {
+            score += 100000;
+          }
+
+          return score;
+        }
+
+        function getOrderedMoves(chessGame) {
+          var moves = chessGame.moves({ verbose: true });
+
+          moves.sort(function(a, b) {
+            return getMovePriority(b) - getMovePriority(a);
+          });
+
+          return moves;
+        }
+
+        function evaluateBoard(chessGame) {
+          var boardState = chessGame.board();
+          var score = 0;
+
+          for (var row = 0; row < boardState.length; row++) {
+            for (var column = 0; column < boardState[row].length; column++) {
+              var piece = boardState[row][column];
+
+              if (!piece) {
+                continue;
+              }
+
+              var value = pieceValues[piece.type] || 0;
+
+              if (piece.color === 'b') {
+                score += value;
+              } else {
+                score -= value;
+              }
+            }
+          }
+
+          return score;
+        }
+
+        function makeMove(chessGame, move) {
+          return chessGame.move({
+            from: move.from,
+            to: move.to,
+            promotion: move.promotion || 'q'
+          });
+        }
+
+        function minimax(chessGame, depth, alpha, beta) {
+          if (chessGame.in_checkmate()) {
+            return chessGame.turn() === 'b'
+              ? -100000 - depth
+              : 100000 + depth;
+          }
+
+          if (
+            chessGame.in_draw() ||
+            chessGame.in_stalemate() ||
+            chessGame.in_threefold_repetition() ||
+            chessGame.insufficient_material()
+          ) {
+            return 0;
+          }
+
+          if (depth === 0) {
+            return evaluateBoard(chessGame);
+          }
+
+          var moves = getOrderedMoves(chessGame);
+
+          if (chessGame.turn() === 'b') {
+            var bestBlackScore = -Infinity;
+
+            for (var i = 0; i < moves.length; i++) {
+              makeMove(chessGame, moves[i]);
+
+              var blackScore = minimax(
+                chessGame,
+                depth - 1,
+                alpha,
+                beta
+              );
+
+              chessGame.undo();
+
+              bestBlackScore = Math.max(bestBlackScore, blackScore);
+              alpha = Math.max(alpha, bestBlackScore);
+
+              if (beta <= alpha) {
+                break;
+              }
+            }
+
+            return bestBlackScore;
+          }
+
+          var bestWhiteScore = Infinity;
+
+          for (var j = 0; j < moves.length; j++) {
+            makeMove(chessGame, moves[j]);
+
+            var whiteScore = minimax(
+              chessGame,
+              depth - 1,
+              alpha,
+              beta
+            );
+
+            chessGame.undo();
+
+            bestWhiteScore = Math.min(bestWhiteScore, whiteScore);
+            beta = Math.min(beta, bestWhiteScore);
+
+            if (beta <= alpha) {
+              break;
+            }
+          }
+
+          return bestWhiteScore;
+        }
+
+        function findBestMove(chessGame, depth, randomMode) {
+          var moves = getOrderedMoves(chessGame);
+
+          if (moves.length === 0) {
+            return null;
+          }
+
+          if (randomMode) {
+            return getRandomMove(moves);
+          }
+
+          var bestMoves = [];
+          var bestScore = -Infinity;
+
+          for (var i = 0; i < moves.length; i++) {
+            var move = moves[i];
+
+            makeMove(chessGame, move);
+
+            var score = minimax(
+              chessGame,
+              depth,
+              -Infinity,
+              Infinity
+            );
+
+            chessGame.undo();
+
+            if (score > bestScore) {
+              bestScore = score;
+              bestMoves = [move];
+            } else if (score === bestScore) {
+              bestMoves.push(move);
+            }
+          }
+
+          return getRandomMove(bestMoves);
+        }
+
+        self.onmessage = function(event) {
+          try {
+            var data = event.data;
+            var chessGame = new Chess(data.fen);
+
+            var bestMove = findBestMove(
+              chessGame,
+              data.depth,
+              data.random
+            );
+
+            self.postMessage({
+              success: true,
+              move: bestMove
+            });
+          } catch (error) {
+            self.postMessage({
+              success: false,
+              error: error.message
+            });
+          }
+        };
+      `;
+
+      var blob = new Blob(
+        [workerCode],
+        { type: 'application/javascript' }
+      );
+
+      var workerURL = URL.createObjectURL(blob);
+
+      return new Worker(workerURL);
+    }
+
+    function scheduleAIMove() {
+      if (!isAITurn() || game.game_over() || !gameActive) {
+        return;
+      }
+
+      stopAI();
+      aiThinking = true;
+
+      $status.html('Black AI is thinking...');
+      updateTimerUI();
+
+      var config = getAIConfig();
+
+      aiMoveTimeout = setTimeout(function() {
+        beginAIWorkerSearch(config);
+      }, config.delay);
+    }
+
+    function beginAIWorkerSearch(config) {
+      if (!isAITurn() || !gameActive || game.game_over()) {
+        aiThinking = false;
+        return;
+      }
+
+      aiMoveTimeout = null;
+      aiWorker = createAIWorker();
+
+      aiWorker.onmessage = function(event) {
+        var response = event.data;
+
+        if (!response.success || !response.move) {
+          makeFallbackAIMove();
+          return;
+        }
+
+        completeAIMove(response.move);
+      };
+
+      aiWorker.onerror = function() {
+        makeFallbackAIMove();
+      };
+
+      aiWorker.postMessage({
+        fen: game.fen(),
+        depth: config.depth,
+        random: config.random
+      });
+    }
+
+    function completeAIMove(move) {
+      if (aiWorker) {
+        aiWorker.terminate();
+        aiWorker = null;
+      }
+
+      /*
+        Charge the Black clock one final time before
+        the AI makes its move.
+      */
+      syncActiveClock();
+
+      if (!gameActive || game.game_over() || !isAITurn()) {
+        aiThinking = false;
+        updateStatus();
+        return;
+      }
+
+      game.move({
+        from: move.from,
+        to: move.to,
+        promotion: move.promotion || 'q'
+      });
+
+      lastClockUpdate = Date.now();
+
+      board.position(game.fen());
+
+      aiThinking = false;
+      resetSelection();
+      updateStatus();
+    }
+
+    function makeFallbackAIMove() {
+      if (aiWorker) {
+        aiWorker.terminate();
+        aiWorker = null;
+      }
+
+      if (!isAITurn() || !gameActive) {
+        aiThinking = false;
+        return;
+      }
+
+      var legalMoves = game.moves({ verbose: true });
+
+      if (legalMoves.length === 0) {
+        aiThinking = false;
+        updateStatus();
+        return;
+      }
+
+      var move = legalMoves[
+        Math.floor(Math.random() * legalMoves.length)
+      ];
+
+      completeAIMove(move);
+    }
+
+    // ==========================================
+    // 4. TIMERS & UI UPDATES
     // ==========================================
     function formatTime(seconds) {
-      if (seconds <= 0) return "0:00";
-      var m = Math.floor(seconds / 60);
-      var s = seconds % 60;
-      return m + ":" + (s < 10 ? "0" : "") + s;
+      if (seconds <= 0) {
+        return '0:00';
+      }
+
+      var displaySeconds = Math.ceil(seconds);
+      var minutes = Math.floor(displaySeconds / 60);
+      var secondsRemaining = displaySeconds % 60;
+
+      return minutes + ':' +
+        (secondsRemaining < 10 ? '0' : '') +
+        secondsRemaining;
     }
 
     function updateTimerUI() {
-      $('#whiteTimer .time-text').text(whiteTimeLeft === 0 && parseInt($('#whiteMins').val()) === 0 ? "∞" : formatTime(whiteTimeLeft));
-      $('#blackTimer .time-text').text(blackTimeLeft === 0 && parseInt($('#blackMins').val()) === 0 ? "∞" : formatTime(blackTimeLeft));
-      
+      var whiteMinutes = parseInt($('#whiteMins').val(), 10) || 0;
+      var blackMinutes = parseInt($('#blackMins').val(), 10) || 0;
+
+      $('#whiteTimer .time-text').text(
+        whiteMinutes === 0 ? '∞' : formatTime(whiteTimeLeft)
+      );
+
+      $('#blackTimer .time-text').text(
+        blackMinutes === 0 ? '∞' : formatTime(blackTimeLeft)
+      );
+
       if (!game.game_over() && gameActive) {
         if (game.turn() === 'w') {
           $('#whiteTimer').addClass('active-timer');
@@ -104,44 +537,105 @@
       }
     }
 
-    function startTimers() {
-      if (timerInterval) clearInterval(timerInterval);
-      timerInterval = setInterval(function() {
-        if (game.game_over() || !gameActive) {
-          clearInterval(timerInterval);
+    function syncActiveClock() {
+      if (!gameActive || game.game_over()) {
+        return;
+      }
+
+      var now = Date.now();
+
+      if (lastClockUpdate === null) {
+        lastClockUpdate = now;
+        return;
+      }
+
+      var elapsedSeconds = (now - lastClockUpdate) / 1000;
+      lastClockUpdate = now;
+
+      var whiteMinutes = parseInt($('#whiteMins').val(), 10) || 0;
+      var blackMinutes = parseInt($('#blackMins').val(), 10) || 0;
+
+      if (game.turn() === 'w' && whiteMinutes > 0) {
+        whiteTimeLeft -= elapsedSeconds;
+
+        if (whiteTimeLeft <= 0) {
+          whiteTimeLeft = 0;
+          timeoutLoss('White');
           return;
         }
-        if (game.turn() === 'w' && whiteTimeLeft > 0) {
-          whiteTimeLeft--;
-          if (whiteTimeLeft <= 0) timeoutLoss('White');
-        } else if (game.turn() === 'b' && blackTimeLeft > 0) {
-          blackTimeLeft--;
-          if (blackTimeLeft <= 0) timeoutLoss('Black');
+      }
+
+      if (game.turn() === 'b' && blackMinutes > 0) {
+        blackTimeLeft -= elapsedSeconds;
+
+        if (blackTimeLeft <= 0) {
+          blackTimeLeft = 0;
+          timeoutLoss('Black');
+          return;
         }
-        updateTimerUI();
-      }, 1000);
+      }
+
+      updateTimerUI();
+    }
+
+    function startTimers() {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+      }
+
+      lastClockUpdate = Date.now();
+
+      timerInterval = setInterval(function() {
+        syncActiveClock();
+
+        if (game.game_over() || !gameActive) {
+          clearInterval(timerInterval);
+          timerInterval = null;
+        }
+      }, 250);
     }
 
     function timeoutLoss(color) {
       gameActive = false;
-      clearInterval(timerInterval);
+      stopAI();
+
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+
+      lastClockUpdate = null;
+
       $('.timer').removeClass('active-timer');
       $status.html('Game over, ' + color + ' ran out of time.');
+
+      updateTimerUI();
     }
 
-    function updateStatus () {
+    function updateStatus() {
       var statusHTML = '';
       var moveColor = game.turn() === 'b' ? 'Black' : 'White';
 
       if (game.in_checkmate()) {
         statusHTML = 'Checkmate! ' + moveColor + ' lost.';
         gameActive = false;
+        stopAI();
       } else if (game.in_draw()) {
         statusHTML = 'Game over, draw.';
         gameActive = false;
+        stopAI();
+      } else if (aiThinking && isAITurn()) {
+        statusHTML = 'Black AI is thinking...';
       } else {
-        statusHTML = moveColor + ' to move';
-        if (game.in_check()) statusHTML += ' (Check!)';
+        if (isAIEnabled() && game.turn() === 'b') {
+          statusHTML = 'Black AI to move';
+        } else {
+          statusHTML = moveColor + ' to move';
+        }
+
+        if (game.in_check()) {
+          statusHTML += ' (Check!)';
+        }
       }
 
       $status.html(statusHTML);
@@ -149,86 +643,38 @@
     }
 
     // ==========================================
-    // 3. BOARD INTERACTION & HIGHLIGHTING
+    // 5. BOARD INTERACTION & HIGHLIGHTING
     // ==========================================
-    function removeHighlights () {
+    function removeHighlights() {
       $('#myBoard .square-55d63').css('background', '');
     }
 
-    function highlightSquare (square, customColor) {
+    function highlightSquare(square, customColor) {
       var $square = $('#myBoard .square-' + square);
-      var background = customColor || ( $square.hasClass('black-3c85d') ? blackSquareHighlight : whiteSquareHighlight );
+
+      var background = customColor || (
+        $square.hasClass('black-3c85d')
+          ? blackSquareHighlight
+          : whiteSquareHighlight
+      );
+
       $square.css('background', background);
     }
 
-    // Handles logic for highlighting possible moves when selected
-    function highlightPossibleMoves (square) {
-      var moves = game.moves({ square: square, verbose: true });
-      if (moves.length === 0) return;
+    function highlightPossibleMoves(square) {
+      var moves = game.moves({
+        square: square,
+        verbose: true
+      });
 
-      // Highlight the selected square first
-      highlightSquare(square, selectedSquareHighlight);
-
-      // Highlight target squares
-      for (var i = 0; i < moves.length; i++) {
-        highlightSquare(moves[i].to);
-      }
-    }
-
-    // Triggered when a square on the board is clicked
-    function handleSquareClick(square) {
-      // --- THE CHEAT: HOLD 'C' AND CLICK TO DELETE ---
-      if (isHoldingC) {
-        game.remove(square);
-        board.position(game.fen());
-        updateStatus();
-        resetSelection();
+      if (moves.length === 0) {
         return;
       }
 
-      // Block interaction if game is over
-      if (game.game_over() || (gameActive === false && timerInterval !== null)) return;
+      highlightSquare(square, selectedSquareHighlight);
 
-      var piece = game.get(square);
-
-      // Scenario A: Selecting a starting piece
-      if (sourceSquare === null) {
-        if (piece && piece.color === game.turn()) {
-          sourceSquare = square;
-          removeHighlights();
-          highlightPossibleMoves(square);
-        }
-      } 
-      // Scenario B: Clicking a square when a piece is already selected
-      else {
-        // Option 1: Re-selecting a different piece of the same color
-        if (piece && piece.color === game.turn()) {
-          sourceSquare = square;
-          removeHighlights();
-          highlightPossibleMoves(square);
-        } 
-        // Option 2: Attempting a move
-        else {
-          var move = game.move({
-            from: sourceSquare,
-            to: square,
-            promotion: 'q' // Auto-promote to Queen for simplicity
-          });
-
-          if (move === null) {
-            // Invalid move, reset selection
-            resetSelection();
-          } else {
-            // Valid move: Update board, clocks, and state
-            board.position(game.fen());
-            if (!gameActive) {
-              gameActive = true;
-              startTimers();
-            }
-            updateStatus();
-            resetSelection();
-          }
-        }
+      for (var i = 0; i < moves.length; i++) {
+        highlightSquare(moves[i].to);
       }
     }
 
@@ -237,64 +683,180 @@
       removeHighlights();
     }
 
-    // Hover indicators (only active when no piece is selected)
-    function onMouseoverSquare (square, piece) {
-      if (sourceSquare !== null) return; // Keep selections locked visually
-      
-      var moves = game.moves({ square: square, verbose: true });
-      if (moves.length === 0) return;
-      
+    function handleSquareClick(square) {
+      // Hold C and click a square to remove a piece for practice.
+      if (isHoldingC) {
+        stopAI();
+        game.remove(square);
+        board.position(game.fen());
+        resetSelection();
+        updateStatus();
+        return;
+      }
+
+      if (game.game_over() || aiThinking || isAITurn()) {
+        return;
+      }
+
+      var piece = game.get(square);
+
+      // Select a piece.
+      if (sourceSquare === null) {
+        if (piece && piece.color === game.turn()) {
+          sourceSquare = square;
+          removeHighlights();
+          highlightPossibleMoves(square);
+        }
+
+        return;
+      }
+
+      // Choose another friendly piece instead.
+      if (piece && piece.color === game.turn()) {
+        sourceSquare = square;
+        removeHighlights();
+        highlightPossibleMoves(square);
+        return;
+      }
+
+      // Charge White's clock before changing turns.
+      if (gameActive) {
+        syncActiveClock();
+
+        if (!gameActive) {
+          return;
+        }
+      }
+
+      var move = game.move({
+        from: sourceSquare,
+        to: square,
+        promotion: 'q'
+      });
+
+      if (move === null) {
+        resetSelection();
+        return;
+      }
+
+      board.position(game.fen());
+
+      if (!gameActive) {
+        gameActive = true;
+        startTimers();
+      } else {
+        lastClockUpdate = Date.now();
+      }
+
+      resetSelection();
+      updateStatus();
+
+      if (!game.game_over() && isAITurn()) {
+        scheduleAIMove();
+      }
+    }
+
+    function onMouseoverSquare(square, piece) {
+      if (sourceSquare !== null || aiThinking || isAITurn()) {
+        return;
+      }
+
+      var moves = game.moves({
+        square: square,
+        verbose: true
+      });
+
+      if (moves.length === 0) {
+        return;
+      }
+
       highlightSquare(square);
+
       for (var i = 0; i < moves.length; i++) {
         highlightSquare(moves[i].to);
       }
     }
 
-    function onMouseoutSquare (square, piece) {
-      if (sourceSquare !== null) return; // Retain active selection highlights
+    function onMouseoutSquare(square, piece) {
+      if (sourceSquare !== null || aiThinking || isAITurn()) {
+        return;
+      }
+
       removeHighlights();
     }
 
     // ==========================================
-    // 4. BUTTON CONTROLS (Undo & Reset)
+    // 6. BUTTON CONTROLS
     // ==========================================
     function undoMove() {
-      var undo = game.undo();
-      if (undo) {
-        board.position(game.fen());
-        if (game.history().length === 0) {
-          gameActive = false;
-          if (timerInterval) clearInterval(timerInterval);
-          timerInterval = null;
-        } else if (!gameActive && whiteTimeLeft > 0 && blackTimeLeft > 0) {
-          gameActive = true;
-          startTimers();
-        }
-        resetSelection();
-        updateStatus();
+      stopAI();
+
+      if (game.history().length === 0) {
+        return;
       }
+
+      var movesToUndo = 1;
+
+      // Undo both the player move and AI response when possible.
+      if (isAIEnabled() && game.turn() === 'w' && game.history().length >= 2) {
+        movesToUndo = 2;
+      }
+
+      for (var i = 0; i < movesToUndo; i++) {
+        var undoneMove = game.undo();
+
+        if (!undoneMove) {
+          break;
+        }
+      }
+
+      board.position(game.fen());
+
+      if (game.history().length === 0) {
+        gameActive = false;
+
+        if (timerInterval) {
+          clearInterval(timerInterval);
+          timerInterval = null;
+        }
+
+        lastClockUpdate = null;
+      } else {
+        lastClockUpdate = Date.now();
+      }
+
+      resetSelection();
+      updateStatus();
     }
 
     function resetGame() {
-      var wMins = parseInt($('#whiteMins').val()) || 0;
-      var bMins = parseInt($('#blackMins').val()) || 0;
-      whiteTimeLeft = wMins * 60;
-      blackTimeLeft = bMins * 60;
-      
+      stopAI();
+
+      var whiteMinutes = parseInt($('#whiteMins').val(), 10) || 0;
+      var blackMinutes = parseInt($('#blackMins').val(), 10) || 0;
+
+      whiteTimeLeft = whiteMinutes * 60;
+      blackTimeLeft = blackMinutes * 60;
+
       game.reset();
       board.start();
-      
+
       gameActive = false;
-      if (timerInterval) clearInterval(timerInterval);
+      lastClockUpdate = null;
+
+      if (timerInterval) {
+        clearInterval(timerInterval);
+      }
+
       timerInterval = null;
-      
+
       resetSelection();
       updateStatus();
       updateTimerUI();
     }
 
     // ==========================================
-    // 5. CHEAT KEY LISTENERS
+    // 7. CHEAT KEY LISTENERS
     // ==========================================
     $(document).on('keydown', function(event) {
       if (event.key === 'c' || event.key === 'C') {
@@ -309,20 +871,18 @@
     });
 
     // ==========================================
-    // 6. INITIALIZATION
+    // 8. INITIALIZATION
     // ==========================================
     var config = {
-      draggable: false, // Turn off default drag-and-drop mechanics
+      draggable: false,
       position: 'start',
       onMouseoutSquare: onMouseoutSquare,
       onMouseoverSquare: onMouseoverSquare,
       pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
     };
-    
+
     board = Chessboard('myBoard', config);
-    resetGame();
-    
-    // Bind jQuery click handler to board squares manually
+
     $('#myBoard').on('click', '.square-55d63', function() {
       var square = $(this).attr('data-square');
       handleSquareClick(square);
@@ -330,8 +890,16 @@
 
     $('#resetBtn').on('click', resetGame);
     $('#undoBtn').on('click', undoMove);
-    $(window).resize(board.resize);
 
+    $('#aiLevel').on('change', function() {
+      resetGame();
+    });
+
+    $(window).resize(function() {
+      board.resize();
+    });
+
+    resetGame();
   </script>
 </body>
 </html>
