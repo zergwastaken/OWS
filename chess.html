@@ -65,12 +65,11 @@
       </p>
     </div>
 
-    <!-- BOARD AND MATERIAL TRACKER -->
     <div class="board-and-material" style="display:flex; align-items:flex-start; gap:20px;">
-      <div id="myBoard" class="game-container" style="width:clamp(300px, 75vh, 60vw);"></div>
+      <div id="myBoard" class="game-container" style="width:clamp(300px, 72vh, 52vw);"></div>
 
-      <aside class="material-panel" style="min-width:175px; max-width:210px;">
-        <h2 style="margin-top:0;">Material</h2>
+      <aside class="material-panel">
+        <h2>Material</h2>
 
         <div id="materialStatus" class="material-status">
           Even material
@@ -78,12 +77,12 @@
 
         <div class="captured-section">
           <h3>White Lost</h3>
-          <p style="font-size:0.8rem; margin-top:0;">
-            Pieces captured by Black
-          </p>
+          <p>Pieces captured by Black</p>
+
           <div id="whiteCaptured" class="captured-pieces">
             None
           </div>
+
           <div id="whiteLostValue" class="captured-value">
             Value lost: 0
           </div>
@@ -91,12 +90,12 @@
 
         <div class="captured-section" style="margin-top:20px;">
           <h3>Black Lost</h3>
-          <p style="font-size:0.8rem; margin-top:0;">
-            Pieces captured by White
-          </p>
+          <p>Pieces captured by White</p>
+
           <div id="blackCaptured" class="captured-pieces">
             None
           </div>
+
           <div id="blackLostValue" class="captured-value">
             Value lost: 0
           </div>
@@ -124,18 +123,19 @@
     var gameActive = false;
     var lastClockUpdate = null;
 
-    var whiteSquareHighlight = '#a9a9a9';
-    var blackSquareHighlight = '#696969';
-    var selectedSquareHighlight = '#71d473';
-
     var sourceSquare = null;
     var isHoldingC = false;
 
     var aiThinking = false;
     var aiMoveTimeout = null;
-    var aiWorker = null;
+    var aiAbortController = null;
 
-    // Used for the material tracker.
+    var lastAIEngineDepth = null;
+
+    var whiteSquareHighlight = '#a9a9a9';
+    var blackSquareHighlight = '#696969';
+    var selectedSquareHighlight = '#71d473';
+
     var materialValues = {
       p: 1,
       n: 3,
@@ -144,7 +144,6 @@
       q: 9
     };
 
-    // Highest-value pieces appear first.
     var pieceDisplayOrder = ['q', 'r', 'b', 'n', 'p'];
 
     var pieceSymbols = {
@@ -189,38 +188,45 @@
       var settings = {
         off: {
           depth: 0,
-          delay: 0,
-          random: true
+          maxThinkingTime: 0
         },
 
+        /*
+          Beginner-level practice.
+        */
         recruit: {
-          depth: 0,
-          delay: 100,
-          random: true
+          depth: 6,
+          maxThinkingTime: 20
         },
 
+        /*
+          Strong casual player level.
+        */
         operator: {
-          depth: 0,
-          delay: 125,
-          random: false
+          depth: 10,
+          maxThinkingTime: 40
         },
 
+        /*
+          Very difficult tactical and positional play.
+        */
         specialist: {
-          depth: 1,
-          delay: 175,
-          random: false
+          depth: 14,
+          maxThinkingTime: 70
         },
 
+        /*
+          Maximum standard chess-api.com request settings.
+          This is intended to be extremely difficult.
+        */
         expert: {
-          depth: 2,
-          delay: 225,
-          random: false
+          depth: 18,
+          maxThinkingTime: 100
         }
       };
 
       return settings[level] || settings.operator;
     }
-
     function stopAI() {
       aiThinking = false;
 
@@ -229,255 +235,10 @@
         aiMoveTimeout = null;
       }
 
-      if (aiWorker) {
-        aiWorker.terminate();
-        aiWorker = null;
+      if (aiAbortController) {
+        aiAbortController.abort();
+        aiAbortController = null;
       }
-    }
-
-    // ==========================================
-    // AI WEB WORKER
-    // ==========================================
-    function createAIWorker() {
-      var workerCode = `
-        importScripts('https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js');
-
-        var pieceValues = {
-          p: 100,
-          n: 320,
-          b: 330,
-          r: 500,
-          q: 900,
-          k: 20000
-        };
-
-        function randomMove(moves) {
-          return moves[Math.floor(Math.random() * moves.length)];
-        }
-
-        function movePriority(move) {
-          var score = 0;
-
-          if (move.captured) {
-            score += pieceValues[move.captured] || 0;
-          }
-
-          if (move.promotion) {
-            score += pieceValues[move.promotion] || 0;
-          }
-
-          if (move.san && move.san.indexOf('+') !== -1) {
-            score += 40;
-          }
-
-          if (move.san && move.san.indexOf('#') !== -1) {
-            score += 100000;
-          }
-
-          return score;
-        }
-
-        function orderedMoves(chessGame) {
-          var moves = chessGame.moves({ verbose: true });
-
-          moves.sort(function(a, b) {
-            return movePriority(b) - movePriority(a);
-          });
-
-          return moves;
-        }
-
-        function playMove(chessGame, move) {
-          chessGame.move({
-            from: move.from,
-            to: move.to,
-            promotion: move.promotion || 'q'
-          });
-        }
-
-        function evaluate(chessGame) {
-          var boardState = chessGame.board();
-          var score = 0;
-
-          for (var row = 0; row < boardState.length; row++) {
-            for (var col = 0; col < boardState[row].length; col++) {
-              var piece = boardState[row][col];
-
-              if (!piece) {
-                continue;
-              }
-
-              var value = pieceValues[piece.type] || 0;
-
-              if (piece.color === 'b') {
-                score += value;
-              } else {
-                score -= value;
-              }
-            }
-          }
-
-          return score;
-        }
-
-        function minimax(chessGame, depth, alpha, beta) {
-          if (chessGame.in_checkmate()) {
-            return chessGame.turn() === 'b'
-              ? -100000 - depth
-              : 100000 + depth;
-          }
-
-          if (
-            chessGame.in_draw() ||
-            chessGame.in_stalemate() ||
-            chessGame.in_threefold_repetition() ||
-            chessGame.insufficient_material()
-          ) {
-            return 0;
-          }
-
-          if (depth === 0) {
-            return evaluate(chessGame);
-          }
-
-          var moves = orderedMoves(chessGame);
-
-          if (chessGame.turn() === 'b') {
-            var bestBlackScore = -Infinity;
-
-            for (var i = 0; i < moves.length; i++) {
-              playMove(chessGame, moves[i]);
-
-              var blackScore = minimax(
-                chessGame,
-                depth - 1,
-                alpha,
-                beta
-              );
-
-              chessGame.undo();
-
-              if (blackScore > bestBlackScore) {
-                bestBlackScore = blackScore;
-              }
-
-              if (bestBlackScore > alpha) {
-                alpha = bestBlackScore;
-              }
-
-              if (beta <= alpha) {
-                break;
-              }
-            }
-
-            return bestBlackScore;
-          }
-
-          var bestWhiteScore = Infinity;
-
-          for (var j = 0; j < moves.length; j++) {
-            playMove(chessGame, moves[j]);
-
-            var whiteScore = minimax(
-              chessGame,
-              depth - 1,
-              alpha,
-              beta
-            );
-
-            chessGame.undo();
-
-            if (whiteScore < bestWhiteScore) {
-              bestWhiteScore = whiteScore;
-            }
-
-            if (bestWhiteScore < beta) {
-              beta = bestWhiteScore;
-            }
-
-            if (beta <= alpha) {
-              break;
-            }
-          }
-
-          return bestWhiteScore;
-        }
-
-        function findBestMove(chessGame, depth, randomMode) {
-          var moves = orderedMoves(chessGame);
-
-          if (moves.length === 0) {
-            return null;
-          }
-
-          if (randomMode) {
-            return randomMove(moves);
-          }
-
-          var bestMoves = [];
-          var bestScore = -Infinity;
-          var alpha = -Infinity;
-          var beta = Infinity;
-
-          for (var i = 0; i < moves.length; i++) {
-            var move = moves[i];
-
-            playMove(chessGame, move);
-
-            var score = minimax(
-              chessGame,
-              depth,
-              alpha,
-              beta
-            );
-
-            chessGame.undo();
-
-            if (score > bestScore) {
-              bestScore = score;
-              bestMoves = [move];
-            } else if (score === bestScore) {
-              bestMoves.push(move);
-            }
-
-            if (bestScore > alpha) {
-              alpha = bestScore;
-            }
-          }
-
-          return randomMove(bestMoves);
-        }
-
-        self.onmessage = function(event) {
-          try {
-            var data = event.data;
-            var chessGame = new Chess(data.fen);
-
-            var result = findBestMove(
-              chessGame,
-              data.depth,
-              data.random
-            );
-
-            self.postMessage({
-              success: true,
-              move: result
-            });
-          } catch (error) {
-            self.postMessage({
-              success: false,
-              error: error.message
-            });
-          }
-        };
-      `;
-
-      var blob = new Blob(
-        [workerCode],
-        { type: 'application/javascript' }
-      );
-
-      return new Worker(URL.createObjectURL(blob));
     }
 
     function scheduleAIMove() {
@@ -485,19 +246,20 @@
         return;
       }
 
-      aiThinking = true;
+      stopAI();
 
+      aiThinking = true;
       $status.html('Black AI is thinking...');
       updateTimerUI();
 
       var config = getAIConfig();
 
       aiMoveTimeout = setTimeout(function() {
-        beginAIWorkerSearch(config);
-      }, config.delay);
+        requestChessApiMove(config);
+      }, 150);
     }
 
-    function beginAIWorkerSearch(config) {
+    async function requestChessApiMove(config) {
       if (!isAITurn() || !gameActive || game.game_over()) {
         aiThinking = false;
         return;
@@ -505,33 +267,119 @@
 
       aiMoveTimeout = null;
 
-      if (!aiWorker) {
-        aiWorker = createAIWorker();
-      }
+      var positionAtRequest = game.fen();
+      var controller = new AbortController();
 
-      aiWorker.onmessage = function(event) {
-        var response = event.data;
+      aiAbortController = controller;
 
-        if (!response.success || !response.move) {
-          makeFallbackAIMove();
+      try {
+        var response = await fetch('https://chess-api.com/v1', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          signal: controller.signal,
+          body: JSON.stringify({
+            fen: positionAtRequest,
+            depth: config.depth,
+            maxThinkingTime: config.maxThinkingTime,
+            variants: 1
+          })
+        });
+
+        /*
+          Read the response as text first. This lets us show useful
+          diagnostics even if the API returns HTML or a non-JSON error.
+        */
+        var responseText = await response.text();
+
+        if (!response.ok) {
+          throw new Error(
+            'Chess API returned HTTP ' +
+            response.status +
+            ': ' +
+            responseText.substring(0, 180)
+          );
+        }
+
+        var data;
+
+        try {
+          data = JSON.parse(responseText);
+        } catch (jsonError) {
+          throw new Error(
+            'Chess API returned invalid JSON: ' +
+            responseText.substring(0, 180)
+          );
+        }
+
+        console.log('Chess API response:', data);
+        console.log('Requested depth:', config.depth);
+        console.log('Actual returned depth:', data.depth);
+
+        /*
+          Ignore an old API response if the game changed while
+          the API was still calculating.
+        */
+        if (
+          !aiThinking ||
+          !gameActive ||
+          game.game_over() ||
+          !isAITurn() ||
+          game.fen() !== positionAtRequest
+        ) {
           return;
         }
 
-        completeAIMove(response.move);
-      };
+        if (!data.from || !data.to) {
+          throw new Error(
+            'Chess API returned no valid move. Response: ' +
+            responseText.substring(0, 180)
+          );
+        }
 
-      aiWorker.onerror = function() {
-        makeFallbackAIMove();
-      };
+        applyAIMove({
+          from: data.from,
+          to: data.to,
+          promotion: data.promotion || 'q'
+        });
 
-      aiWorker.postMessage({
-        fen: game.fen(),
-        depth: config.depth,
-        random: config.random
-      });
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          return;
+        }
+
+        console.error('Chess API error:', error);
+
+        aiThinking = false;
+
+        /*
+          Pause the game instead of making a random weak move.
+          The displayed error will help identify the actual problem.
+        */
+        gameActive = false;
+
+        if (timerInterval) {
+          clearInterval(timerInterval);
+          timerInterval = null;
+        }
+
+        $('.timer').removeClass('active-timer');
+
+        $status.text(
+          'Black AI error: ' + error.message
+        );
+
+        updateTimerUI();
+
+      } finally {
+        if (aiAbortController === controller) {
+          aiAbortController = null;
+        }
+      }
     }
 
-    function completeAIMove(move) {
+    function applyAIMove(move) {
       syncActiveClock();
 
       if (!gameActive || game.game_over() || !isAITurn()) {
@@ -540,16 +388,22 @@
         return;
       }
 
-      game.move({
+      var appliedMove = game.move({
         from: move.from,
         to: move.to,
         promotion: move.promotion || 'q'
       });
 
+      if (appliedMove === null) {
+        aiThinking = false;
+        makeFallbackAIMove();
+        return;
+      }
+
       lastClockUpdate = Date.now();
 
+      // false disables the Chessboard.js duplicate-piece animation.
       board.position(game.fen(), false);
-
 
       aiThinking = false;
       resetSelection();
@@ -557,28 +411,29 @@
     }
 
     function makeFallbackAIMove() {
-      if (!isAITurn() || !gameActive) {
-        aiThinking = false;
-        return;
+      aiThinking = false;
+      gameActive = false;
+
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
       }
 
-      var legalMoves = game.moves({ verbose: true });
+      $('.timer').removeClass('active-timer');
 
-      if (legalMoves.length === 0) {
-        aiThinking = false;
-        updateStatus();
-        return;
-      }
+      $status.text(
+        'Black AI did not receive a valid move from chess-api.com.'
+      );
 
-      var move = legalMoves[
-        Math.floor(Math.random() * legalMoves.length)
-      ];
+      updateTimerUI();
 
-      completeAIMove(move);
+      console.error(
+        'Chess API failed or returned an invalid response. No fallback move was made.'
+      );
     }
 
     // ==========================================
-    // MATERIAL / CAPTURED PIECE TRACKER
+    // MATERIAL TRACKER
     // ==========================================
     function getCurrentPieceCounts(color) {
       var counts = {
@@ -608,6 +463,7 @@
 
     function getLostPieceCounts(color) {
       var currentCounts = getCurrentPieceCounts(color);
+
       var lostCounts = {
         p: 0,
         n: 0,
@@ -618,10 +474,11 @@
 
       for (var i = 0; i < pieceDisplayOrder.length; i++) {
         var pieceType = pieceDisplayOrder[i];
-        var expectedCount = startingPieceCounts[pieceType];
-        var currentCount = currentCounts[pieceType];
 
-        lostCounts[pieceType] = Math.max(0, expectedCount - currentCount);
+        lostCounts[pieceType] = Math.max(
+          0,
+          startingPieceCounts[pieceType] - currentCounts[pieceType]
+        );
       }
 
       return lostCounts;
@@ -694,7 +551,7 @@
     }
 
     // ==========================================
-    // TIMERS
+    // CLOCKS AND STATUS
     // ==========================================
     function formatTime(seconds) {
       if (seconds <= 0) {
@@ -825,6 +682,8 @@
         stopAI();
       } else if (aiThinking && isAITurn()) {
         statusHTML = 'Black AI is thinking...';
+      } else if (isAIEnabled() && game.turn() === 'w' && lastAIEngineDepth) {
+        statusHTML = 'White to move — Black AI searched depth ' + lastAIEngineDepth;
       } else {
         if (isAIEnabled() && game.turn() === 'b') {
           statusHTML = 'Black AI to move';
@@ -889,7 +748,6 @@
         stopAI();
         game.remove(square);
         board.position(game.fen(), false);
-
         resetSelection();
         updateStatus();
         return;
@@ -938,7 +796,6 @@
       }
 
       board.position(game.fen(), false);
-
 
       if (!gameActive) {
         gameActive = true;
@@ -996,7 +853,7 @@
 
       var movesToUndo = 1;
 
-      // In an AI game, undo the AI move and the previous player move.
+      // If playing an AI game, undo both player and AI moves.
       if (isAIEnabled() && game.turn() === 'w' && game.history().length >= 2) {
         movesToUndo = 2;
       }
@@ -1010,7 +867,6 @@
       }
 
       board.position(game.fen(), false);
-
 
       if (game.history().length === 0) {
         gameActive = false;
@@ -1077,10 +933,7 @@
       draggable: false,
       position: 'start',
 
-      /*
-        Chessboard.js animation is disabled because its temporary
-        animation clone can look like a teleporting duplicate piece.
-      */
+      // Prevent duplicate/teleport piece animation.
       appearSpeed: 0,
       moveSpeed: 0,
       snapbackSpeed: 0,
@@ -1089,13 +942,11 @@
 
       onMouseoutSquare: onMouseoutSquare,
       onMouseoverSquare: onMouseoverSquare,
+
       pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
     };
 
     board = Chessboard('myBoard', config);
-
-    // Preload the AI worker so the first AI move is faster.
-    aiWorker = createAIWorker();
 
     $('#myBoard').on('click', '.square-55d63', function() {
       var square = $(this).attr('data-square');
