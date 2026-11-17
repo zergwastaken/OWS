@@ -127,10 +127,14 @@
 
     var aiThinking = false;
     var aiMoveTimeout = null;
-    var aiSocket = null;
-    var aiSocketTimeout = null;
-    var aiLatestMove = null;
+    var aiAbortController = null;
     var lastAIEngineDepth = null;
+
+    // In-Browser Stockfish Web Worker state
+    var stockfishWorker = null;
+    var stockfishReady = false;
+    var stockfishFailed = false;
+    var currentWorkerCallback = null;
 
     var whiteSquareHighlight = '#a9a9a9';
     var blackSquareHighlight = '#696969';
@@ -160,7 +164,73 @@
     };
 
     // ==========================================
-    // AI SETTINGS & BUILT-IN FALLBACK ENGINE
+    // TIER 1: IN-BROWSER STOCKFISH WEB WORKER
+    // ==========================================
+    function initStockfishWorker() {
+      if (stockfishWorker || stockfishFailed) return;
+
+      var cdnUrl = 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js';
+
+      fetch(cdnUrl)
+        .then(function(response) {
+          if (!response.ok) throw new Error('Failed to load stockfish.js');
+          return response.text();
+        })
+        .then(function(scriptText) {
+          var blob = new Blob([scriptText], { type: 'application/javascript' });
+          var workerUrl = URL.createObjectURL(blob);
+          stockfishWorker = new Worker(workerUrl);
+
+          stockfishWorker.onmessage = function(event) {
+            var line = typeof event.data === 'string' ? event.data : '';
+
+            if (line === 'uciok') {
+              stockfishReady = true;
+              return;
+            }
+
+            // Parse live search depth from Stockfish UCI output
+            var depthMatch = line.match(/\bdepth\s+(\d+)/);
+            if (depthMatch && aiThinking && isAITurn()) {
+              lastAIEngineDepth = depthMatch[1] + ' (Stockfish)';
+              $status.html('Black AI thinking... depth ' + depthMatch[1]);
+            }
+
+            // Parse final bestmove from Stockfish UCI output (e.g., "bestmove e7e5" or "bestmove a7a8q")
+            if (line.indexOf('bestmove') === 0) {
+              var parts = line.split(' ');
+              var moveStr = parts[1];
+
+              if (currentWorkerCallback && moveStr && moveStr.length >= 4 && moveStr !== '(none)') {
+                var cb = currentWorkerCallback;
+                currentWorkerCallback = null;
+                cb({
+                  from: moveStr.substring(0, 2),
+                  to: moveStr.substring(2, 4),
+                  promotion: moveStr.length > 4 ? moveStr.substring(4, 5) : 'q',
+                  depth: lastAIEngineDepth || 'Stockfish'
+                });
+              }
+            }
+          };
+
+          stockfishWorker.onerror = function() {
+            stockfishFailed = true;
+            stockfishReady = false;
+          };
+
+          stockfishWorker.postMessage('uci');
+        })
+        .catch(function() {
+          stockfishFailed = true;
+        });
+    }
+
+    // Initialize Stockfish Worker immediately on page load
+    initStockfishWorker();
+
+    // ==========================================
+    // AI CONFIGURATION
     // ==========================================
     function isAIEnabled() {
       return $('#aiLevel').val() !== 'off';
@@ -174,17 +244,236 @@
       var level = $('#aiLevel').val();
 
       var settings = {
-        off:        { depth: 0,  maxThinkingTime: 0,   localDepth: 0 },
-        recruit:    { depth: 6,  maxThinkingTime: 20,  localDepth: 1 },
-        operator:   { depth: 10, maxThinkingTime: 40,  localDepth: 2 },
-        specialist: { depth: 14, maxThinkingTime: 70,  localDepth: 3 },
-        expert:     { depth: 18, maxThinkingTime: 100, localDepth: 4 }
+        off:        { depth: 0,  skill: 0,  maxThinkingTime: 0,   localDepth: 0 },
+        recruit:    { depth: 5,  skill: 3,  maxThinkingTime: 20,  localDepth: 2 },
+        operator:   { depth: 10, skill: 10, maxThinkingTime: 40,  localDepth: 3 },
+        specialist: { depth: 13, skill: 15, maxThinkingTime: 70,  localDepth: 3 },
+        expert:     { depth: 15, skill: 20, maxThinkingTime: 100, localDepth: 4 }
       };
 
       return settings[level] || settings.operator;
     }
 
-    // Piece-square bonus tables for local AI fallback
+    function stopAI() {
+      aiThinking = false;
+      currentWorkerCallback = null;
+
+      if (aiMoveTimeout) {
+        clearTimeout(aiMoveTimeout);
+        aiMoveTimeout = null;
+      }
+
+      if (aiAbortController) {
+        aiAbortController.abort();
+        aiAbortController = null;
+      }
+
+      if (stockfishWorker && stockfishReady) {
+        stockfishWorker.postMessage('stop');
+      }
+    }
+
+    function pauseGameForAIError(message) {
+      aiThinking = false;
+      gameActive = false;
+      lastClockUpdate = null;
+
+      stopAI();
+
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+
+      $('.timer').removeClass('active-timer');
+      $status.text('Black AI error: ' + message);
+
+      updateTimerUI();
+      updateMaterialTracker();
+
+      console.error('Black AI error:', message);
+    }
+
+    function validatePositionForAI(fen) {
+      var fenValidation = game.validate_fen(fen);
+
+      if (!fenValidation.valid) {
+        return {
+          valid: false,
+          error: fenValidation.error
+        };
+      }
+
+      var boardState = game.board();
+      var whiteKings = 0;
+      var blackKings = 0;
+
+      for (var row = 0; row < boardState.length; row++) {
+        for (var col = 0; col < boardState[row].length; col++) {
+          var piece = boardState[row][col];
+          if (!piece || piece.type !== 'k') continue;
+          if (piece.color === 'w') whiteKings++;
+          else blackKings++;
+        }
+      }
+
+      if (whiteKings !== 1 || blackKings !== 1) {
+        return {
+          valid: false,
+          error: 'The board must have exactly one White king and one Black king.'
+        };
+      }
+
+      return { valid: true };
+    }
+
+    // ==========================================
+    // MULTI-TIER AI REQUEST ROUTER
+    // ==========================================
+    function scheduleAIMove() {
+      if (!isAITurn() || game.game_over() || !gameActive) {
+        return;
+      }
+
+      stopAI();
+
+      aiThinking = true;
+      $status.html('Black AI is thinking...');
+      updateTimerUI();
+
+      var config = getAIConfig();
+
+      aiMoveTimeout = setTimeout(function() {
+        requestAIMoveCascade(config);
+      }, 150);
+    }
+
+    function requestAIMoveCascade(config) {
+      if (!isAITurn() || !gameActive || game.game_over()) {
+        aiThinking = false;
+        return;
+      }
+
+      aiMoveTimeout = null;
+      var fen = game.fen();
+      var validation = validatePositionForAI(fen);
+
+      if (!validation.valid) {
+        pauseGameForAIError('Invalid board position. ' + validation.error);
+        return;
+      }
+
+      // 1. Try Stockfish Web Worker first (fastest, immune to WebSocket blocks)
+      if (stockfishWorker && stockfishReady) {
+        requestStockfishWorkerMove(fen, config);
+        return;
+      }
+
+      // 2. Otherwise try HTTPS REST APIs (stockfish.online -> chess-api.com POST -> Local Fallback)
+      requestStockfishRestAPI(fen, config);
+    }
+
+    // Tier 1 Execution: Stockfish Web Worker
+    function requestStockfishWorkerMove(fen, config) {
+      lastAIEngineDepth = config.depth + ' (Stockfish)';
+
+      currentWorkerCallback = function(moveObj) {
+        if (!aiThinking || !gameActive || !isAITurn()) return;
+        applyAIMove(moveObj);
+      };
+
+      stockfishWorker.postMessage('stop');
+      stockfishWorker.postMessage('setoption name Skill Level value ' + config.skill);
+      stockfishWorker.postMessage('position fen ' + fen);
+      stockfishWorker.postMessage('go depth ' + config.depth);
+    }
+
+    // Tier 2 Execution: Stockfish.online HTTPS GET API
+    function requestStockfishRestAPI(fen, config) {
+      aiAbortController = new AbortController();
+      // stockfish.online accepts depth up to 15
+      var apiDepth = Math.min(config.depth, 15);
+      var url = 'https://stockfish.online/api/s/v2.php?fen=' +
+        encodeURIComponent(fen) +
+        '&depth=' + apiDepth;
+
+      fetch(url, { signal: aiAbortController.signal })
+        .then(function(response) {
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          return response.json();
+        })
+        .then(function(data) {
+          if (!aiThinking || !gameActive || !isAITurn()) return;
+
+          // Format: "bestmove e7e5 ponder d2d4"
+          if (data && data.success && data.bestmove) {
+            var parts = data.bestmove.split(' ');
+            var uciMove = parts[1] || parts[0];
+
+            if (uciMove && uciMove.length >= 4) {
+              lastAIEngineDepth = apiDepth + ' (Stockfish REST)';
+              applyAIMove({
+                from: uciMove.substring(0, 2),
+                to: uciMove.substring(2, 4),
+                promotion: uciMove.length > 4 ? uciMove.substring(4, 5) : 'q',
+                depth: lastAIEngineDepth
+              });
+              return;
+            }
+          }
+          throw new Error('Invalid payload from stockfish.online');
+        })
+        .catch(function(err) {
+          if (err.name === 'AbortError') return;
+          console.warn('Stockfish REST API failed, trying Chess-API HTTPS POST:', err.message);
+          requestChessApiRestPOST(fen, config);
+        });
+    }
+
+    // Tier 3 Execution: Chess-API.com HTTPS POST (No WebSockets)
+    function requestChessApiRestPOST(fen, config) {
+      aiAbortController = new AbortController();
+
+      fetch('https://chess-api.com/v1', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fen: fen,
+          depth: config.depth,
+          maxThinkingTime: config.maxThinkingTime,
+          variants: 1
+        }),
+        signal: aiAbortController.signal
+      })
+        .then(function(response) {
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          return response.json();
+        })
+        .then(function(data) {
+          if (!aiThinking || !gameActive || !isAITurn()) return;
+
+          if (data && data.from && data.to) {
+            lastAIEngineDepth = (data.depth || config.depth) + ' (Chess-API REST)';
+            applyAIMove({
+              from: data.from,
+              to: data.to,
+              promotion: data.promotion || 'q',
+              depth: lastAIEngineDepth
+            });
+            return;
+          }
+          throw new Error('Invalid payload from chess-api.com POST');
+        })
+        .catch(function(err) {
+          if (err.name === 'AbortError') return;
+          console.warn('All external AI APIs unreachable. Using built-in Local Engine:', err.message);
+          runFallbackLocalAI(config);
+        });
+    }
+
+    // ==========================================
+    // TIER 4: BUILT-IN LOCAL MINIMAX ENGINE
+    // ==========================================
     var pstPawn = [
       [0,  0,  0,  0,  0,  0,  0,  0],
       [50, 50, 50, 50, 50, 50, 50, 50],
@@ -265,7 +554,6 @@
       var moves = game.moves({ verbose: true });
       if (moves.length === 0) return null;
 
-      // Shuffle moves slightly so equal-value moves have variety
       moves.sort(function() { return 0.5 - Math.random(); });
 
       var bestMove = moves[0];
@@ -286,268 +574,20 @@
         from: bestMove.from,
         to: bestMove.to,
         promotion: bestMove.promotion || 'q',
-        depth: localDepth + ' (Local Engine)'
+        depth: localDepth + ' (Local Fallback)'
       };
     }
 
     function runFallbackLocalAI(config) {
       if (!aiThinking || !gameActive || !isAITurn()) return;
 
-      closeAISocket();
-      var fallbackMove = computeLocalAIMove(config.localDepth || 2);
+      var fallbackMove = computeLocalAIMove(config.localDepth || 3);
 
       if (fallbackMove) {
         lastAIEngineDepth = fallbackMove.depth;
         applyAIMove(fallbackMove);
       } else {
         pauseGameForAIError('No legal moves available.');
-      }
-    }
-
-    function stopAI() {
-      aiThinking = false;
-      aiLatestMove = null;
-
-      if (aiMoveTimeout) {
-        clearTimeout(aiMoveTimeout);
-        aiMoveTimeout = null;
-      }
-
-      closeAISocket();
-    }
-
-    function closeAISocket() {
-      if (aiSocketTimeout) {
-        clearTimeout(aiSocketTimeout);
-        aiSocketTimeout = null;
-      }
-
-      if (aiSocket) {
-        aiSocket.onopen = null;
-        aiSocket.onmessage = null;
-        aiSocket.onerror = null;
-        aiSocket.onclose = null;
-
-        if (
-          aiSocket.readyState === WebSocket.OPEN ||
-          aiSocket.readyState === WebSocket.CONNECTING
-        ) {
-          aiSocket.close();
-        }
-
-        aiSocket = null;
-      }
-    }
-
-    function pauseGameForAIError(message) {
-      aiThinking = false;
-      gameActive = false;
-      lastClockUpdate = null;
-
-      closeAISocket();
-
-      if (timerInterval) {
-        clearInterval(timerInterval);
-        timerInterval = null;
-      }
-
-      $('.timer').removeClass('active-timer');
-      $status.text('Black AI error: ' + message);
-
-      updateTimerUI();
-      updateMaterialTracker();
-
-      console.error('Black AI error:', message);
-    }
-
-    function validatePositionForAI(fen) {
-      // FIXED: game.validate_fen(fen) instead of Chess.validate_fen(fen)
-      var fenValidation = game.validate_fen(fen);
-
-      if (!fenValidation.valid) {
-        return {
-          valid: false,
-          error: fenValidation.error
-        };
-      }
-
-      var boardState = game.board();
-      var whiteKings = 0;
-      var blackKings = 0;
-
-      for (var row = 0; row < boardState.length; row++) {
-        for (var col = 0; col < boardState[row].length; col++) {
-          var piece = boardState[row][col];
-
-          if (!piece || piece.type !== 'k') {
-            continue;
-          }
-
-          if (piece.color === 'w') {
-            whiteKings++;
-          } else {
-            blackKings++;
-          }
-        }
-      }
-
-      if (whiteKings !== 1 || blackKings !== 1) {
-        return {
-          valid: false,
-          error: 'The board must have exactly one White king and one Black king.'
-        };
-      }
-
-      return {
-        valid: true
-      };
-    }
-
-    function scheduleAIMove() {
-      if (!isAITurn() || game.game_over() || !gameActive) {
-        return;
-      }
-
-      stopAI();
-
-      aiThinking = true;
-      $status.html('Black AI is thinking...');
-      updateTimerUI();
-
-      var config = getAIConfig();
-
-      aiMoveTimeout = setTimeout(function() {
-        requestChessApiWebSocketMove(config);
-      }, 150);
-    }
-
-    function requestChessApiWebSocketMove(config) {
-      if (!isAITurn() || !gameActive || game.game_over()) {
-        aiThinking = false;
-        return;
-      }
-
-      aiMoveTimeout = null;
-
-      var positionAtRequest = game.fen();
-      var validation = validatePositionForAI(positionAtRequest);
-
-      if (!validation.valid) {
-        pauseGameForAIError('Invalid board position. ' + validation.error);
-        return;
-      }
-
-      aiLatestMove = null;
-
-      var taskID = 'ai-' +
-        Date.now() +
-        '-' +
-        Math.random().toString(36).substring(2, 9);
-
-      try {
-        aiSocket = new WebSocket('wss://chess-api.com/v1');
-
-        aiSocket.onopen = function() {
-          if (!aiSocket || !aiThinking || !isAITurn()) {
-            return;
-          }
-
-          aiSocket.send(JSON.stringify({
-            fen: positionAtRequest,
-            depth: config.depth,
-            maxThinkingTime: config.maxThinkingTime,
-            variants: 1,
-            taskId: taskID
-          }));
-        };
-
-        aiSocket.onmessage = function(event) {
-          var data;
-
-          try {
-            data = JSON.parse(event.data);
-          } catch (error) {
-            return;
-          }
-
-          if (data.taskId && data.taskId !== taskID) {
-            return;
-          }
-
-          if (data.type === 'error') {
-            console.warn('Chess API returned error, using local AI fallback:', data.error);
-            runFallbackLocalAI(config);
-            return;
-          }
-
-          if (data.from && data.to) {
-            aiLatestMove = {
-              from: data.from,
-              to: data.to,
-              promotion: data.promotion || 'q',
-              depth: data.depth || 'unknown'
-            };
-
-            lastAIEngineDepth = data.depth || 'unknown';
-
-            $status.html(
-              'Black AI thinking... depth ' + lastAIEngineDepth
-            );
-          }
-
-          if (
-            data.type === 'bestmove' &&
-            aiLatestMove &&
-            aiThinking &&
-            gameActive &&
-            isAITurn()
-          ) {
-            var bestMove = aiLatestMove;
-            closeAISocket();
-            applyAIMove(bestMove);
-          }
-        };
-
-        aiSocket.onerror = function() {
-          if (!aiThinking) return;
-          console.warn('WebSocket blocked or unreachable. Switching to local AI fallback.');
-          runFallbackLocalAI(config);
-        };
-
-        aiSocket.onclose = function() {
-          if (!aiThinking || !gameActive || !isAITurn()) {
-            return;
-          }
-
-          if (aiLatestMove) {
-            var closingMove = aiLatestMove;
-            closeAISocket();
-            applyAIMove(closingMove);
-          } else {
-            runFallbackLocalAI(config);
-          }
-        };
-
-        /*
-          The API may continue searching for a final bestmove.
-          After 5 seconds, use the strongest candidate or local fallback.
-        */
-        aiSocketTimeout = setTimeout(function() {
-          if (!aiThinking || !gameActive || !isAITurn()) {
-            return;
-          }
-
-          if (aiLatestMove) {
-            var timeoutMove = aiLatestMove;
-            closeAISocket();
-            applyAIMove(timeoutMove);
-          } else {
-            runFallbackLocalAI(config);
-          }
-        }, 5000);
-
-      } catch (error) {
-        runFallbackLocalAI(config);
       }
     }
 
@@ -577,7 +617,6 @@
       board.position(game.fen(), false);
 
       aiThinking = false;
-      aiLatestMove = null;
 
       resetSelection();
       updateStatus();
@@ -1045,7 +1084,6 @@
       draggable: false,
       position: 'start',
 
-      // Disable duplicate or teleport-style animations.
       appearSpeed: 0,
       moveSpeed: 0,
       snapbackSpeed: 0,
