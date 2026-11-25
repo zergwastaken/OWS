@@ -9,11 +9,196 @@
   <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
   <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+
+  <style>
+    /* =========================================
+       Coordinate Notation Overrides
+       ========================================= */
+    #myBoard .notation-322f9 {
+      font-size: 13px !important;
+      font-weight: 700 !important;
+      line-height: 1 !important;
+      user-select: none;
+      pointer-events: none;
+    }
+
+    #myBoard .alpha-d2270 {
+      bottom: 4px !important;
+      right: 5px !important;
+    }
+
+    #myBoard .numeric-fc462 {
+      top: 4px !important;
+      left: 5px !important;
+    }
+
+    #myBoard .white-1e1d7 .notation-322f9 {
+      color: #5a3825 !important;
+      text-shadow: 0 0 1px rgba(255, 255, 255, 0.5);
+    }
+
+    #myBoard .black-3c85d .notation-322f9 {
+      color: #ffffff !important;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+    }
+
+    /* =========================================
+       Centered Modal Overlay & Box (Matches CSS Theme)
+       ========================================= */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.78);
+      backdrop-filter: blur(5px);
+      z-index: 10000;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .modal-box {
+      background: var(--bg-panel, #2a2a2a);
+      border: 1px solid #4b4b4b;
+      border-radius: 12px;
+      box-shadow: var(--shadow-main, 0 10px 30px rgba(0, 0, 0, 0.5));
+      width: 100%;
+      max-width: 500px;
+      padding: 28px 24px;
+      color: var(--text-main, #ffffff);
+      text-align: center;
+      position: relative;
+      animation: modalPopIn 0.25s ease-out forwards;
+    }
+
+    @keyframes modalPopIn {
+      from {
+        opacity: 0;
+        transform: scale(0.92) translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
+
+    .modal-box .badge-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: rgba(0, 122, 204, 0.15);
+      border: 2px solid var(--primary-color, #007acc);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 14px;
+      color: #38bdf8;
+    }
+
+    .modal-box h2 {
+      font-size: 1.4rem;
+      font-weight: 600;
+      margin-bottom: 10px;
+      color: var(--text-main, #ffffff);
+    }
+
+    .modal-box p {
+      font-size: 0.95rem;
+      color: var(--text-muted, #aaaaaa);
+      line-height: 1.5;
+      margin-bottom: 18px;
+    }
+
+    .modal-box p strong {
+      color: var(--text-main, #ffffff);
+    }
+
+    .modal-input-group {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      width: 100%;
+    }
+
+    .modal-input-group input[type="text"] {
+      flex: 1;
+      padding: 10px 12px;
+      background: var(--bg-dark, #1e1e1e);
+      border: 1px solid #555;
+      color: var(--text-main, #ffffff);
+      border-radius: 6px;
+      font-size: 0.88rem;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .modal-input-group input[type="text"]:focus {
+      border-color: var(--primary-color, #007acc);
+    }
+
+    .modal-status-badge {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 12px 16px;
+      background: var(--bg-component, #333333);
+      border: 1px solid #484848;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      color: var(--text-main, #ffffff);
+    }
+
+    .pulse-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background-color: var(--accent-orange, #f39c12);
+      box-shadow: 0 0 8px var(--accent-orange, #f39c12);
+      animation: pulseAnimation 1.5s infinite ease-in-out;
+    }
+
+    @keyframes pulseAnimation {
+      0% { transform: scale(0.9); opacity: 0.6; }
+      50% { transform: scale(1.25); opacity: 1; }
+      100% { transform: scale(0.9); opacity: 0.6; }
+    }
+
+    .btn-copied {
+      background-color: #27ae60 !important;
+    }
+  </style>
 </head>
 <body>
 
   <script src="nav.js"></script>
   <div id="nav-placeholder"></div>
+
+  <!-- Centered Modal for Online Turn Sharing (Persistent Waiting Screen) -->
+  <div id="turnShareOverlay" class="modal-overlay">
+    <div class="modal-box">
+      <div class="badge-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      </div>
+
+      <h2>Move Sent & Copied!</h2>
+      <p id="turnShareMessage">
+        The game link has been copied to your clipboard. Send it to your friend and wait for them to make their move and send their link back.
+      </p>
+
+      <div class="modal-input-group">
+        <input type="text" id="turnShareInput" readonly spellcheck="false">
+        <button id="reCopyBtn">Copy Link</button>
+      </div>
+
+      <div class="modal-status-badge">
+        <span class="pulse-dot"></span>
+        <span id="turnWaitText">Game paused &bull; Awaiting opponent's reply...</span>
+      </div>
+    </div>
+  </div>
 
   <div class="split-layout">
 
@@ -46,22 +231,56 @@
         </div>
 
         <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
-          <label for="aiLevel">Black Opponent:</label>
-          <select id="aiLevel">
-            <option value="off">Two Players</option>
-            <option value="recruit">Recruit AI</option>
-            <option value="operator" selected>Operator AI</option>
-            <option value="specialist">Specialist AI</option>
-            <option value="expert">Expert AI</option>
+          <label for="aiMode">Opponent:</label>
+          <select id="aiMode">
+            <option value="online" selected>Online Two Players (Link Sharing)</option>
+            <option value="local">Local Two Players (Same Device)</option>
+            <option value="elo">Elo AI</option>
           </select>
+        </div>
+
+        <!-- Board Auto-Flip for 2-Player Mode -->
+        <div id="autoFlipSetting" style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-top:10px;">
+          <label for="autoFlip">Flip board each turn:</label>
+          <input type="checkbox" id="autoFlip" style="cursor:pointer; width:18px; height:18px;">
+        </div>
+
+        <div id="colorSettings" style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-top:10px;">
+          <label for="playerColor">You Play:</label>
+          <select id="playerColor">
+            <option value="w" selected>White</option>
+            <option value="b">Black</option>
+          </select>
+        </div>
+
+        <div id="aiEloSettings" style="width:100%; margin-top:12px; display:none;">
+          <label for="aiElo" style="display:block; margin-bottom:6px;">
+            AI Elo:
+            <strong id="aiEloDisplay">1200</strong>
+          </label>
+
+          <input
+            type="range"
+            id="aiElo"
+            min="100"
+            max="3000"
+            value="1200"
+            step="25"
+            style="width:100%;"
+          >
+
+          <div id="aiRankLabel" style="font-size:0.85rem; margin-top:5px;">
+            Club Player
+          </div>
         </div>
       </div>
 
       <button id="undoBtn">Undo Last Move</button>
+      <button id="copyLinkBtn">Copy Game Link</button>
       <button id="resetBtn">Apply Settings & Restart</button>
 
       <p id="aiHelp" style="font-size:0.85rem; margin-top:12px;">
-        Select an AI tier to practice playing as White. The AI controls Black.
+        Online Two Players mode: After each move, the game link automatically copies and pauses until you open the link sent back by your friend.
       </p>
     </div>
 
@@ -121,16 +340,16 @@
     var blackTimeLeft = 600;
     var timerInterval = null;
     var gameActive = false;
+    var isWaitingForOpponent = false;
     var lastClockUpdate = null;
 
     var sourceSquare = null;
 
     var aiThinking = false;
     var aiMoveTimeout = null;
-    var aiAbortController = null;
     var lastAIEngineDepth = null;
+    var lastAIEngineName = null;
 
-    // In-Browser Stockfish Web Worker state
     var stockfishWorker = null;
     var stockfishReady = false;
     var stockfishFailed = false;
@@ -139,6 +358,8 @@
     var whiteSquareHighlight = '#a9a9a9';
     var blackSquareHighlight = '#696969';
     var selectedSquareHighlight = '#71d473';
+
+    var STORAGE_KEY = 'ows_chess_saved_game_state';
 
     var materialValues = {
       p: 1,
@@ -164,20 +385,342 @@
     };
 
     // ==========================================
-    // TIER 1: IN-BROWSER STOCKFISH WEB WORKER
+    // ORIENTATION SYNC
+    // ==========================================
+    function syncBoardOrientation() {
+      if (!board) return;
+
+      var mode = $('#aiMode').val();
+
+      if (mode === 'elo') {
+        board.orientation(getPlayerColor() === 'b' ? 'black' : 'white');
+      } else {
+        var autoFlip = $('#autoFlip').is(':checked');
+        if (autoFlip) {
+          board.orientation(game.turn() === 'b' ? 'black' : 'white');
+        } else {
+          board.orientation('white');
+        }
+      }
+    }
+
+    // ==========================================
+    // STATE PERSISTENCE (URL & LOCAL STORAGE)
+    // ==========================================
+    function getSerializedState() {
+      return {
+        pgn: game.pgn(),
+        fen: game.fen(),
+        wt: Math.round(whiteTimeLeft),
+        bt: Math.round(blackTimeLeft),
+        wm: parseInt($('#whiteMins').val(), 10) || 0,
+        bm: parseInt($('#blackMins').val(), 10) || 0,
+        mode: $('#aiMode').val(),
+        color: $('#playerColor').val(),
+        elo: getSelectedElo(),
+        autoflip: $('#autoFlip').is(':checked') ? 1 : 0,
+        waiting: isWaitingForOpponent ? 1 : 0,
+        active: gameActive && !game.game_over()
+      };
+    }
+
+    function saveGameState() {
+      var state = getSerializedState();
+
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (e) {
+        console.warn('Could not save game to localStorage:', e);
+      }
+
+      try {
+        var params = new URLSearchParams();
+        if (state.pgn) params.set('pgn', state.pgn);
+        params.set('fen', state.fen);
+        params.set('wt', state.wt);
+        params.set('bt', state.bt);
+        params.set('wm', state.wm);
+        params.set('bm', state.bm);
+        params.set('mode', state.mode);
+        params.set('color', state.color);
+        params.set('autoflip', state.autoflip);
+        if (state.mode === 'elo') {
+          params.set('elo', state.elo);
+        }
+
+        var newUrl = window.location.pathname + '?' + params.toString();
+        window.history.replaceState({ path: newUrl }, '', newUrl);
+      } catch (e) {
+        console.warn('Could not update URL parameters:', e);
+      }
+    }
+
+    function clearSavedState() {
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch (e) {}
+
+      try {
+        var cleanUrl = window.location.pathname;
+        window.history.replaceState({}, '', cleanUrl);
+      } catch (e) {}
+    }
+
+    function loadSavedState() {
+      var state = null;
+      var fromURL = false;
+      var urlParams = new URLSearchParams(window.location.search);
+
+      if (urlParams.has('fen') || urlParams.has('pgn')) {
+        fromURL = true;
+        var modeParam = urlParams.get('mode') || 'online';
+        if (modeParam === 'off') modeParam = 'local';
+
+        state = {
+          pgn: urlParams.get('pgn') || '',
+          fen: urlParams.get('fen'),
+          wt: parseInt(urlParams.get('wt'), 10),
+          bt: parseInt(urlParams.get('bt'), 10),
+          wm: parseInt(urlParams.get('wm'), 10),
+          bm: parseInt(urlParams.get('bm'), 10),
+          mode: modeParam,
+          color: urlParams.get('color') || 'w',
+          elo: parseInt(urlParams.get('elo'), 10) || 1200,
+          autoflip: urlParams.get('autoflip') === '1',
+          waiting: 0 // New incoming link means it is now this player's turn to play
+        };
+      } else {
+        try {
+          var stored = localStorage.getItem(STORAGE_KEY);
+          if (stored) {
+            state = JSON.parse(stored);
+            if (state.mode === 'off') state.mode = 'local';
+          }
+        } catch (e) {
+          console.warn('Could not parse saved state from localStorage:', e);
+        }
+      }
+
+      if (!state) {
+        return false;
+      }
+
+      if (!isNaN(state.wm)) $('#whiteMins').val(state.wm);
+      if (!isNaN(state.bm)) $('#blackMins').val(state.bm);
+      if (state.mode) $('#aiMode').val(state.mode);
+      if (state.color) $('#playerColor').val(state.color);
+      if (state.elo) $('#aiElo').val(state.elo);
+      if (typeof state.autoflip !== 'undefined') {
+        $('#autoFlip').prop('checked', !!state.autoflip);
+      }
+
+      var loaded = false;
+      if (state.pgn && state.pgn.trim().length > 0) {
+        loaded = game.load_pgn(state.pgn);
+      }
+      if (!loaded && state.fen) {
+        loaded = game.load(state.fen);
+      }
+
+      if (!loaded) {
+        game.reset();
+        return false;
+      }
+
+      var defaultWhite = (parseInt($('#whiteMins').val(), 10) || 0) * 60;
+      var defaultBlack = (parseInt($('#blackMins').val(), 10) || 0) * 60;
+      whiteTimeLeft = !isNaN(state.wt) ? state.wt : defaultWhite;
+      blackTimeLeft = !isNaN(state.bt) ? state.bt : defaultBlack;
+
+      board.position(game.fen(), false);
+      syncBoardOrientation();
+
+      updateEloDisplay();
+      updateStatus();
+      updateTimerUI();
+      updateMaterialTracker();
+
+      // If local reload was in waiting state, resume waiting modal & keep clock paused
+      if (!fromURL && state.waiting === 1 && state.mode === 'online' && !game.game_over()) {
+        showPersistentWaitingModal();
+        return true;
+      }
+
+      // Received link from friend: clear waiting modal, start timers for player's turn
+      $('#turnShareOverlay').hide();
+      isWaitingForOpponent = false;
+
+      if (game.history().length > 0 && !game.game_over()) {
+        gameActive = true;
+        startTimers();
+
+        if (isAITurn()) {
+          scheduleAIMove();
+        }
+      }
+
+      return true;
+    }
+
+    // ==========================================
+    // ELO AND PLAYER COLOR SETTINGS
+    // ==========================================
+    function clamp(value, minimum, maximum) {
+      return Math.max(minimum, Math.min(maximum, value));
+    }
+
+    function getSelectedElo() {
+      var elo = parseInt($('#aiElo').val(), 10) || 1200;
+      return clamp(elo, 100, 3000);
+    }
+
+    function getPlayerColor() {
+      return $('#playerColor').val() === 'b' ? 'b' : 'w';
+    }
+
+    function getAIColor() {
+      return getPlayerColor() === 'w' ? 'b' : 'w';
+    }
+
+    function getColorName(color) {
+      return color === 'w' ? 'White' : 'Black';
+    }
+
+    function getPlayerColorName() {
+      return getColorName(getPlayerColor());
+    }
+
+    function getAIColorName() {
+      return getColorName(getAIColor());
+    }
+
+    function getEloRankLabel(elo) {
+      if (elo < 400) return 'Beginner';
+      if (elo < 700) return 'Novice';
+      if (elo < 1000) return 'Developing Player';
+      if (elo < 1400) return 'Club Player';
+      if (elo < 1800) return 'Advanced Club Player';
+      if (elo < 2000) return 'Expert';
+      if (elo < 2200) return 'Candidate Master';
+      if (elo < 2300) return 'FIDE Master';
+      if (elo < 2400) return 'International Master';
+      if (elo < 2500) return 'Grandmaster Candidate';
+      return 'Grandmaster';
+    }
+
+    function isAIEnabled() {
+      return $('#aiMode').val() === 'elo';
+    }
+
+    function isOnlineMode() {
+      return $('#aiMode').val() === 'online';
+    }
+
+    function isAITurn() {
+      return isAIEnabled() && game.turn() === getAIColor();
+    }
+
+    function updateEloDisplay() {
+      var mode = $('#aiMode').val();
+      var aiEnabled = (mode === 'elo');
+      var elo = getSelectedElo();
+
+      $('#aiEloSettings').toggle(aiEnabled);
+      $('#colorSettings').toggle(aiEnabled);
+      $('#autoFlipSetting').toggle(!aiEnabled);
+
+      $('#aiEloDisplay').text(elo);
+      $('#aiRankLabel').text(getEloRankLabel(elo) + ' — ' + elo + ' Elo');
+
+      if (mode === 'online') {
+        $('#aiHelp').text(
+          'Online Two Players: Make your move, copy and send the link to your friend. The game pauses until they take their turn!'
+        );
+        return;
+      }
+
+      if (mode === 'local') {
+        $('#aiHelp').text(
+          'Local Two Players: Both players take turns on this same screen and device.'
+        );
+        return;
+      }
+
+      if (stockfishReady) {
+        $('#aiHelp').text(
+          'You play ' + getPlayerColorName() +
+          '. The ' + getAIColorName() +
+          ' AI is set to ' + elo +
+          ' Elo and is powered by Stockfish.'
+        );
+      } else if (stockfishFailed) {
+        $('#aiHelp').text(
+          'You play ' + getPlayerColorName() +
+          '. The ' + getAIColorName() +
+          ' AI is set to ' + elo +
+          ' Elo. Running local engine fallback.'
+        );
+      } else {
+        $('#aiHelp').text('Initializing Stockfish...');
+      }
+    }
+
+    function getSkillLevelFromElo(elo) {
+      var skill = 0;
+      var depth = 1;
+
+      if (elo >= 2500) { skill = 20; depth = 15; }
+      else if (elo >= 2200) { skill = 18; depth = 10; }
+      else if (elo >= 2000) { skill = 15; depth = 8; }
+      else if (elo >= 1800) { skill = 12; depth = 6; }
+      else if (elo >= 1600) { skill = 10; depth = 5; }
+      else if (elo >= 1400) { skill = 8; depth = 4; }
+      else if (elo >= 1200) { skill = 6; depth = 3; }
+      else if (elo >= 1000) { skill = 4; depth = 2; }
+      else if (elo >= 800) { skill = 2; depth = 2; }
+      else if (elo >= 600) { skill = 1; depth = 1; }
+      else { skill = 0; depth = 0; }
+
+      return { skill: skill, depth: depth };
+    }
+
+    function getAIConfig() {
+      var elo = getSelectedElo();
+      var skillSettings = getSkillLevelFromElo(elo);
+
+      return {
+        elo: elo,
+        stockfishSkill: skillSettings.skill,
+        stockfishDepth: skillSettings.depth,
+        localDepth: Math.max(1, Math.min(4, Math.floor(elo / 500))),
+        mistakeRate: clamp((2500 - elo) / 2500, 0.01, 0.95),
+        maxThinkingTime: clamp(elo / 3, 100, 1000),
+        canUseStockfish: stockfishReady
+      };
+    }
+
+    // ==========================================
+    // STOCKFISH WEB WORKER
     // ==========================================
     function initStockfishWorker() {
-      if (stockfishWorker || stockfishFailed) return;
+      if (stockfishWorker || stockfishFailed) {
+        return;
+      }
 
       var cdnUrl = 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js';
 
       fetch(cdnUrl)
         .then(function(response) {
-          if (!response.ok) throw new Error('Failed to load stockfish.js');
+          if (!response.ok) {
+            throw new Error('Failed to load Stockfish.');
+          }
           return response.text();
         })
         .then(function(scriptText) {
-          var blob = new Blob([scriptText], { type: 'application/javascript' });
+          var blob = new Blob([scriptText], {
+            type: 'application/javascript'
+          });
+
           var workerUrl = URL.createObjectURL(blob);
           stockfishWorker = new Worker(workerUrl);
 
@@ -186,29 +729,45 @@
 
             if (line === 'uciok') {
               stockfishReady = true;
+              updateEloDisplay();
               return;
             }
 
-            // Parse live search depth from Stockfish UCI output
             var depthMatch = line.match(/\bdepth\s+(\d+)/);
+
             if (depthMatch && aiThinking && isAITurn()) {
-              lastAIEngineDepth = depthMatch[1] + ' (Stockfish)';
-              $status.html('Black AI thinking... depth ' + depthMatch[1]);
+              lastAIEngineDepth = depthMatch[1];
+              lastAIEngineName = 'Stockfish';
+
+              $status.html(
+                getAIColorName() +
+                ' AI thinking... Stockfish depth ' +
+                depthMatch[1] +
+                ' (' +
+                getSelectedElo() +
+                ' Elo)'
+              );
             }
 
-            // Parse final bestmove from Stockfish UCI output (e.g., "bestmove e7e5" or "bestmove a7a8q")
             if (line.indexOf('bestmove') === 0) {
               var parts = line.split(' ');
               var moveStr = parts[1];
 
-              if (currentWorkerCallback && moveStr && moveStr.length >= 4 && moveStr !== '(none)') {
-                var cb = currentWorkerCallback;
+              if (
+                currentWorkerCallback &&
+                moveStr &&
+                moveStr.length >= 4 &&
+                moveStr !== '(none)'
+              ) {
+                var callback = currentWorkerCallback;
                 currentWorkerCallback = null;
-                cb({
+
+                callback({
                   from: moveStr.substring(0, 2),
                   to: moveStr.substring(2, 4),
                   promotion: moveStr.length > 4 ? moveStr.substring(4, 5) : 'q',
-                  depth: lastAIEngineDepth || 'Stockfish'
+                  depth: lastAIEngineDepth || '?',
+                  engine: 'Stockfish'
                 });
               }
             }
@@ -217,42 +776,19 @@
           stockfishWorker.onerror = function() {
             stockfishFailed = true;
             stockfishReady = false;
+            updateEloDisplay();
           };
 
           stockfishWorker.postMessage('uci');
         })
         .catch(function() {
           stockfishFailed = true;
+          stockfishReady = false;
+          updateEloDisplay();
         });
     }
 
-    // Initialize Stockfish Worker immediately on page load
     initStockfishWorker();
-
-    // ==========================================
-    // AI CONFIGURATION
-    // ==========================================
-    function isAIEnabled() {
-      return $('#aiLevel').val() !== 'off';
-    }
-
-    function isAITurn() {
-      return isAIEnabled() && game.turn() === 'b';
-    }
-
-    function getAIConfig() {
-      var level = $('#aiLevel').val();
-
-      var settings = {
-        off:        { depth: 0,  skill: 0,  maxThinkingTime: 0,   localDepth: 0 },
-        recruit:    { depth: 5,  skill: 3,  maxThinkingTime: 20,  localDepth: 2 },
-        operator:   { depth: 10, skill: 10, maxThinkingTime: 40,  localDepth: 3 },
-        specialist: { depth: 13, skill: 15, maxThinkingTime: 70,  localDepth: 3 },
-        expert:     { depth: 15, skill: 20, maxThinkingTime: 100, localDepth: 4 }
-      };
-
-      return settings[level] || settings.operator;
-    }
 
     function stopAI() {
       aiThinking = false;
@@ -261,11 +797,6 @@
       if (aiMoveTimeout) {
         clearTimeout(aiMoveTimeout);
         aiMoveTimeout = null;
-      }
-
-      if (aiAbortController) {
-        aiAbortController.abort();
-        aiAbortController = null;
       }
 
       if (stockfishWorker && stockfishReady) {
@@ -286,12 +817,11 @@
       }
 
       $('.timer').removeClass('active-timer');
-      $status.text('Black AI error: ' + message);
+      $status.text(getAIColorName() + ' AI error: ' + message);
 
       updateTimerUI();
       updateMaterialTracker();
-
-      console.error('Black AI error:', message);
+      saveGameState();
     }
 
     function validatePositionForAI(fen) {
@@ -304,57 +834,44 @@
         };
       }
 
-      var boardState = game.board();
-      var whiteKings = 0;
-      var blackKings = 0;
-
-      for (var row = 0; row < boardState.length; row++) {
-        for (var col = 0; col < boardState[row].length; col++) {
-          var piece = boardState[row][col];
-          if (!piece || piece.type !== 'k') continue;
-          if (piece.color === 'w') whiteKings++;
-          else blackKings++;
-        }
-      }
-
-      if (whiteKings !== 1 || blackKings !== 1) {
-        return {
-          valid: false,
-          error: 'The board must have exactly one White king and one Black king.'
-        };
-      }
-
       return { valid: true };
     }
 
     // ==========================================
-    // MULTI-TIER AI REQUEST ROUTER
+    // AI MOVE ROUTER
     // ==========================================
     function scheduleAIMove() {
-      if (!isAITurn() || game.game_over() || !gameActive) {
+      if (!isAITurn() || game.game_over() || !gameActive || isWaitingForOpponent) {
         return;
       }
 
       stopAI();
-
       aiThinking = true;
-      $status.html('Black AI is thinking...');
+
+      $status.html(
+        getAIColorName() +
+        ' AI is thinking... (' +
+        getSelectedElo() +
+        ' Elo)'
+      );
+
       updateTimerUI();
 
       var config = getAIConfig();
 
       aiMoveTimeout = setTimeout(function() {
-        requestAIMoveCascade(config);
+        requestAIMove(config);
       }, 150);
     }
 
-    function requestAIMoveCascade(config) {
-      if (!isAITurn() || !gameActive || game.game_over()) {
+    function requestAIMove(config) {
+      if (!isAITurn() || !gameActive || game.game_over() || isWaitingForOpponent) {
         aiThinking = false;
         return;
       }
 
       aiMoveTimeout = null;
+
       var fen = game.fen();
       var validation = validatePositionForAI(fen);
 
@@ -363,126 +880,44 @@
         return;
       }
 
-      // 1. Try Stockfish Web Worker first (fastest, immune to WebSocket blocks)
-      if (stockfishWorker && stockfishReady) {
-        requestStockfishWorkerMove(fen, config);
+      if (config.canUseStockfish) {
+        requestStockfishMove(fen, config);
         return;
       }
 
-      // 2. Otherwise try HTTPS REST APIs (stockfish.online -> chess-api.com POST -> Local Fallback)
-      requestStockfishRestAPI(fen, config);
+      runFallbackLocalAI(config);
     }
 
-    // Tier 1 Execution: Stockfish Web Worker
-    function requestStockfishWorkerMove(fen, config) {
-      lastAIEngineDepth = config.depth + ' (Stockfish)';
+    function requestStockfishMove(fen, config) {
+      lastAIEngineDepth = '?';
+      lastAIEngineName = 'Stockfish';
 
       currentWorkerCallback = function(moveObj) {
-        if (!aiThinking || !gameActive || !isAITurn()) return;
+        if (!aiThinking || !gameActive || !isAITurn()) {
+          return;
+        }
+
         applyAIMove(moveObj);
       };
 
       stockfishWorker.postMessage('stop');
-      stockfishWorker.postMessage('setoption name Skill Level value ' + config.skill);
+      stockfishWorker.postMessage('setoption name Skill Level value ' + config.stockfishSkill);
       stockfishWorker.postMessage('position fen ' + fen);
-      stockfishWorker.postMessage('go depth ' + config.depth);
-    }
-
-    // Tier 2 Execution: Stockfish.online HTTPS GET API
-    function requestStockfishRestAPI(fen, config) {
-      aiAbortController = new AbortController();
-      // stockfish.online accepts depth up to 15
-      var apiDepth = Math.min(config.depth, 15);
-      var url = 'https://stockfish.online/api/s/v2.php?fen=' +
-        encodeURIComponent(fen) +
-        '&depth=' + apiDepth;
-
-      fetch(url, { signal: aiAbortController.signal })
-        .then(function(response) {
-          if (!response.ok) throw new Error('HTTP ' + response.status);
-          return response.json();
-        })
-        .then(function(data) {
-          if (!aiThinking || !gameActive || !isAITurn()) return;
-
-          // Format: "bestmove e7e5 ponder d2d4"
-          if (data && data.success && data.bestmove) {
-            var parts = data.bestmove.split(' ');
-            var uciMove = parts[1] || parts[0];
-
-            if (uciMove && uciMove.length >= 4) {
-              lastAIEngineDepth = apiDepth + ' (Stockfish REST)';
-              applyAIMove({
-                from: uciMove.substring(0, 2),
-                to: uciMove.substring(2, 4),
-                promotion: uciMove.length > 4 ? uciMove.substring(4, 5) : 'q',
-                depth: lastAIEngineDepth
-              });
-              return;
-            }
-          }
-          throw new Error('Invalid payload from stockfish.online');
-        })
-        .catch(function(err) {
-          if (err.name === 'AbortError') return;
-          console.warn('Stockfish REST API failed, trying Chess-API HTTPS POST:', err.message);
-          requestChessApiRestPOST(fen, config);
-        });
-    }
-
-    // Tier 3 Execution: Chess-API.com HTTPS POST (No WebSockets)
-    function requestChessApiRestPOST(fen, config) {
-      aiAbortController = new AbortController();
-
-      fetch('https://chess-api.com/v1', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fen: fen,
-          depth: config.depth,
-          maxThinkingTime: config.maxThinkingTime,
-          variants: 1
-        }),
-        signal: aiAbortController.signal
-      })
-        .then(function(response) {
-          if (!response.ok) throw new Error('HTTP ' + response.status);
-          return response.json();
-        })
-        .then(function(data) {
-          if (!aiThinking || !gameActive || !isAITurn()) return;
-
-          if (data && data.from && data.to) {
-            lastAIEngineDepth = (data.depth || config.depth) + ' (Chess-API REST)';
-            applyAIMove({
-              from: data.from,
-              to: data.to,
-              promotion: data.promotion || 'q',
-              depth: lastAIEngineDepth
-            });
-            return;
-          }
-          throw new Error('Invalid payload from chess-api.com POST');
-        })
-        .catch(function(err) {
-          if (err.name === 'AbortError') return;
-          console.warn('All external AI APIs unreachable. Using built-in Local Engine:', err.message);
-          runFallbackLocalAI(config);
-        });
+      stockfishWorker.postMessage('go depth ' + config.stockfishDepth);
     }
 
     // ==========================================
-    // TIER 4: BUILT-IN LOCAL MINIMAX ENGINE
+    // LOCAL ELO APPROXIMATION ENGINE (FALLBACK ONLY)
     // ==========================================
     var pstPawn = [
-      [0,  0,  0,  0,  0,  0,  0,  0],
+      [0,   0,   0,   0,   0,   0,   0,   0],
       [50, 50, 50, 50, 50, 50, 50, 50],
       [10, 10, 20, 30, 30, 20, 10, 10],
-      [5,  5, 10, 25, 25, 10,  5,  5],
-      [0,  0,  0, 20, 20,  0,  0,  0],
-      [5, -5,-10,  0,  0,-10, -5,  5],
-      [5, 10, 10,-20,-20, 10, 10,  5],
-      [0,  0,  0,  0,  0,  0,  0,  0]
+      [5,   5, 10, 25, 25, 10,   5,   5],
+      [0,   0,   0, 20, 20,   0,   0,   0],
+      [5,  -5, -10,  0,   0, -10,  -5,  5],
+      [5,  10,  10,-20, -20,  10,  10,  5],
+      [0,   0,   0,   0,   0,   0,   0,   0]
     ];
 
     var pstKnight = [
@@ -499,96 +934,224 @@
     function evaluateBoardLocal() {
       var boardState = game.board();
       var totalEvaluation = 0;
-      var weights = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
 
-      for (var r = 0; r < 8; r++) {
-        for (var c = 0; c < 8; c++) {
-          var piece = boardState[r][c];
-          if (!piece) continue;
+      var weights = {
+        p: 100,
+        n: 320,
+        b: 330,
+        r: 500,
+        q: 900,
+        k: 20000
+      };
 
-          var val = weights[piece.type] || 0;
-          var rowIdx = piece.color === 'w' ? r : (7 - r);
+      for (var row = 0; row < 8; row++) {
+        for (var col = 0; col < 8; col++) {
+          var piece = boardState[row][col];
 
-          if (piece.type === 'p') val += pstPawn[rowIdx][c];
-          if (piece.type === 'n') val += pstKnight[rowIdx][c];
+          if (!piece) {
+            continue;
+          }
 
-          totalEvaluation += (piece.color === 'b') ? val : -val;
+          var value = weights[piece.type] || 0;
+          var rowIndex = piece.color === 'w' ? row : 7 - row;
+
+          if (piece.type === 'p') {
+            value += pstPawn[rowIndex][col];
+          }
+
+          if (piece.type === 'n') {
+            value += pstKnight[rowIndex][col];
+          }
+
+          totalEvaluation += piece.color === 'b' ? value : -value;
         }
       }
-      return totalEvaluation;
+
+      return getAIColor() === 'b' ? totalEvaluation : -totalEvaluation;
     }
 
-    function minimax(depth, alpha, beta, isMaximizing) {
+    function minimax(depth, alpha, beta) {
       if (depth === 0 || game.game_over()) {
         return evaluateBoardLocal();
       }
 
       var moves = game.moves({ verbose: true });
+      var maximizing = game.turn() === getAIColor();
 
-      if (isMaximizing) {
-        var maxEval = -Infinity;
+      if (maximizing) {
+        var maximumEvaluation = -Infinity;
+
         for (var i = 0; i < moves.length; i++) {
           game.move(moves[i]);
-          var evaluation = minimax(depth - 1, alpha, beta, false);
+
+          var evaluation = minimax(
+            depth - 1,
+            alpha,
+            beta
+          );
+
           game.undo();
-          if (evaluation > maxEval) maxEval = evaluation;
-          if (evaluation > alpha) alpha = evaluation;
-          if (beta <= alpha) break;
+
+          maximumEvaluation = Math.max(maximumEvaluation, evaluation);
+          alpha = Math.max(alpha, evaluation);
+
+          if (beta <= alpha) {
+            break;
+          }
         }
-        return maxEval;
-      } else {
-        var minEval = Infinity;
-        for (var j = 0; j < moves.length; j++) {
-          game.move(moves[j]);
-          var evaluationMin = minimax(depth - 1, alpha, beta, true);
-          game.undo();
-          if (evaluationMin < minEval) minEval = evaluationMin;
-          if (evaluationMin < beta) beta = evaluationMin;
-          if (beta <= alpha) break;
-        }
-        return minEval;
+
+        return maximumEvaluation;
       }
+
+      var minimumEvaluation = Infinity;
+
+      for (var j = 0; j < moves.length; j++) {
+        game.move(moves[j]);
+
+        var minimizingEvaluation = minimax(
+          depth - 1,
+          alpha,
+          beta
+        );
+
+        game.undo();
+
+        minimumEvaluation = Math.min(minimumEvaluation, minimizingEvaluation);
+        beta = Math.min(beta, minimizingEvaluation);
+
+        if (beta <= alpha) {
+          break;
+        }
+      }
+
+      return minimumEvaluation;
     }
 
-    function computeLocalAIMove(localDepth) {
+    function chooseMoveFromCandidates(scoredMoves, config) {
+      if (scoredMoves.length === 0) {
+        return null;
+      }
+
+      scoredMoves.sort(function(a, b) {
+        return b.score - a.score;
+      });
+
+      var maximumCandidateIndex = Math.floor(
+        config.mistakeRate * (scoredMoves.length - 1)
+      );
+
+      var candidateCount = clamp(
+        maximumCandidateIndex + 1,
+        1,
+        scoredMoves.length
+      );
+
+      var candidates = scoredMoves.slice(0, candidateCount);
+      var weightedChoices = [];
+      var weightTotal = 0;
+
+      for (var i = 0; i < candidates.length; i++) {
+        var rankWeight = candidates.length - i;
+        var strengthMultiplier = 1 + (
+          (1 - config.mistakeRate) *
+          (candidates.length - i) *
+          2
+        );
+
+        var weight = rankWeight * strengthMultiplier;
+
+        weightedChoices.push(weight);
+        weightTotal += weight;
+      }
+
+      var randomChoice = Math.random() * weightTotal;
+
+      for (var j = 0; j < candidates.length; j++) {
+        randomChoice -= weightedChoices[j];
+
+        if (randomChoice <= 0) {
+          return candidates[j].move;
+        }
+      }
+
+      return candidates[0].move;
+    }
+
+    function computeLocalAIMove(config) {
       var moves = game.moves({ verbose: true });
-      if (moves.length === 0) return null;
 
-      moves.sort(function() { return 0.5 - Math.random(); });
+      if (moves.length === 0) {
+        return null;
+      }
 
-      var bestMove = moves[0];
-      var bestValue = -Infinity;
+      if (config.elo <= 250 && Math.random() < 0.75) {
+        var randomMove = moves[Math.floor(Math.random() * moves.length)];
+
+        return {
+          from: randomMove.from,
+          to: randomMove.to,
+          promotion: randomMove.promotion || 'q',
+          depth: 'random',
+          engine: 'Local Elo AI'
+        };
+      }
+
+      var scoredMoves = [];
 
       for (var i = 0; i < moves.length; i++) {
         game.move(moves[i]);
-        var boardValue = minimax(localDepth - 1, -Infinity, Infinity, false);
+
+        var score = minimax(
+          Math.max(0, config.localDepth - 1),
+          -Infinity,
+          Infinity
+        );
+
         game.undo();
 
-        if (boardValue > bestValue) {
-          bestValue = boardValue;
-          bestMove = moves[i];
-        }
+        scoredMoves.push({
+          move: moves[i],
+          score: score
+        });
+      }
+
+      var selectedMove = chooseMoveFromCandidates(scoredMoves, config);
+
+      if (!selectedMove) {
+        return null;
       }
 
       return {
-        from: bestMove.from,
-        to: bestMove.to,
-        promotion: bestMove.promotion || 'q',
-        depth: localDepth + ' (Local Fallback)'
+        from: selectedMove.from,
+        to: selectedMove.to,
+        promotion: selectedMove.promotion || 'q',
+        depth: config.localDepth,
+        engine: 'Local Elo AI'
       };
     }
 
     function runFallbackLocalAI(config) {
-      if (!aiThinking || !gameActive || !isAITurn()) return;
-
-      var fallbackMove = computeLocalAIMove(config.localDepth || 3);
-
-      if (fallbackMove) {
-        lastAIEngineDepth = fallbackMove.depth;
-        applyAIMove(fallbackMove);
-      } else {
-        pauseGameForAIError('No legal moves available.');
+      if (!aiThinking || !gameActive || !isAITurn() || isWaitingForOpponent) {
+        return;
       }
+
+      var fallbackMove = computeLocalAIMove(config);
+
+      if (!fallbackMove) {
+        pauseGameForAIError('No legal moves available.');
+        return;
+      }
+
+      setTimeout(function() {
+        if (!aiThinking || !gameActive || !isAITurn() || isWaitingForOpponent) {
+          return;
+        }
+
+        lastAIEngineDepth = fallbackMove.depth;
+        lastAIEngineName = fallbackMove.engine;
+
+        applyAIMove(fallbackMove);
+      }, Math.min(500, config.maxThinkingTime));
     }
 
     function applyAIMove(move) {
@@ -608,7 +1171,10 @@
 
       if (appliedMove === null) {
         pauseGameForAIError(
-          'The AI returned an illegal move: ' + move.from + ' to ' + move.to
+          'The AI returned an illegal move: ' +
+          move.from +
+          ' to ' +
+          move.to
         );
         return;
       }
@@ -619,7 +1185,9 @@
       aiThinking = false;
 
       resetSelection();
+      syncBoardOrientation();
       updateStatus();
+      saveGameState();
     }
 
     // ==========================================
@@ -650,6 +1218,7 @@
 
       for (var i = 0; i < pieceDisplayOrder.length; i++) {
         var pieceType = pieceDisplayOrder[i];
+
         lostCounts[pieceType] = Math.max(
           0,
           startingPieceCounts[pieceType] - currentCounts[pieceType]
@@ -714,7 +1283,9 @@
       if (materialDifference > 0) {
         $('#materialStatus').text('White ahead by ' + materialDifference);
       } else if (materialDifference < 0) {
-        $('#materialStatus').text('Black ahead by ' + Math.abs(materialDifference));
+        $('#materialStatus').text(
+          'Black ahead by ' + Math.abs(materialDifference)
+        );
       } else {
         $('#materialStatus').text('Even material');
       }
@@ -749,7 +1320,7 @@
         blackMinutes === 0 ? '∞' : formatTime(blackTimeLeft)
       );
 
-      if (!game.game_over() && gameActive) {
+      if (!game.game_over() && gameActive && !isWaitingForOpponent) {
         if (game.turn() === 'w') {
           $('#whiteTimer').addClass('active-timer');
           $('#blackTimer').removeClass('active-timer');
@@ -763,7 +1334,7 @@
     }
 
     function syncActiveClock() {
-      if (!gameActive || game.game_over()) {
+      if (!gameActive || game.game_over() || isWaitingForOpponent) {
         return;
       }
 
@@ -813,11 +1384,21 @@
       timerInterval = setInterval(function() {
         syncActiveClock();
 
-        if (game.game_over() || !gameActive) {
+        if (game.game_over() || !gameActive || isWaitingForOpponent) {
           clearInterval(timerInterval);
           timerInterval = null;
         }
       }, 250);
+    }
+
+    function pauseTimersForWaiting() {
+      syncActiveClock();
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+      lastClockUpdate = null;
+      updateTimerUI();
     }
 
     function timeoutLoss(color) {
@@ -836,6 +1417,7 @@
 
       updateTimerUI();
       updateMaterialTracker();
+      saveGameState();
     }
 
     function updateStatus() {
@@ -851,17 +1433,40 @@
         gameActive = false;
         stopAI();
       } else if (aiThinking && isAITurn()) {
-        statusHTML = 'Black AI is thinking...';
+        statusHTML =
+          getAIColorName() +
+          ' AI is thinking... (' +
+          getSelectedElo() +
+          ' Elo)';
       } else if (
         isAIEnabled() &&
-        game.turn() === 'w' &&
+        game.turn() === getPlayerColor() &&
         lastAIEngineDepth !== null
       ) {
-        statusHTML = 'White to move — Black AI searched depth ' +
-          lastAIEngineDepth;
+        statusHTML =
+          getPlayerColorName() +
+          ' to move — ' +
+          getAIColorName() +
+          ' AI: ' +
+          getSelectedElo() +
+          ' Elo (' +
+          (lastAIEngineName || 'AI') +
+          ', depth ' +
+          lastAIEngineDepth +
+          ')';
       } else {
-        if (isAIEnabled() && game.turn() === 'b') {
-          statusHTML = 'Black AI to move';
+        if (isAIEnabled() && isAITurn()) {
+          statusHTML =
+            getAIColorName() +
+            ' AI to move (' +
+            getSelectedElo() +
+            ' Elo)';
+        } else if (isOnlineMode()) {
+          if (isWaitingForOpponent) {
+            statusHTML = 'Move sent! Waiting for ' + moveColor + "'s link...";
+          } else {
+            statusHTML = moveColor + "'s turn (Online Two Players)";
+          }
         } else {
           statusHTML = moveColor + ' to move';
         }
@@ -918,7 +1523,7 @@
     }
 
     function handleSquareClick(square) {
-      if (game.game_over() || aiThinking || isAITurn()) {
+      if (game.game_over() || aiThinking || isAITurn() || isWaitingForOpponent) {
         return;
       }
 
@@ -930,7 +1535,6 @@
           removeHighlights();
           highlightPossibleMoves(square);
         }
-
         return;
       }
 
@@ -970,15 +1574,23 @@
       }
 
       resetSelection();
+      syncBoardOrientation();
       updateStatus();
+      saveGameState();
+
+      // In Online mode: Pause clock, show persistent modal, auto-copy link
+      if (isOnlineMode() && !game.game_over()) {
+        showPersistentWaitingModal();
+        return;
+      }
 
       if (!game.game_over() && isAITurn()) {
         scheduleAIMove();
       }
     }
 
-    function onMouseoverSquare(square, piece) {
-      if (sourceSquare !== null || aiThinking || isAITurn()) {
+    function onMouseoverSquare(square) {
+      if (sourceSquare !== null || aiThinking || isAITurn() || isWaitingForOpponent) {
         return;
       }
 
@@ -998,8 +1610,8 @@
       }
     }
 
-    function onMouseoutSquare(square, piece) {
-      if (sourceSquare !== null || aiThinking || isAITurn()) {
+    function onMouseoutSquare() {
+      if (sourceSquare !== null || aiThinking || isAITurn() || isWaitingForOpponent) {
         return;
       }
 
@@ -1007,10 +1619,79 @@
     }
 
     // ==========================================
+    // ONLINE TURN SHARING MODAL & CLIPBOARD
+    // ==========================================
+    function showPersistentWaitingModal() {
+      isWaitingForOpponent = true;
+      pauseTimersForWaiting();
+      saveGameState();
+
+      var fullUrl = window.location.href;
+      $('#turnShareInput').val(fullUrl);
+
+      var nextPlayer = game.turn() === 'w' ? 'White' : 'Black';
+      $('#turnShareMessage').html(
+        'Your move was saved and the game link was <strong>copied to your clipboard</strong>. ' +
+        'Send this link to your friend playing <strong>' + nextPlayer + '</strong>. ' +
+        'Your turn is complete—wait for them to make their move and send their link back!'
+      );
+
+      $('#turnWaitText').text("Game paused • Awaiting " + nextPlayer + "'s reply link...");
+
+      copyTextToClipboard(fullUrl, function() {
+        $('#turnShareOverlay').css('display', 'flex').hide().fadeIn(220);
+      });
+
+      updateStatus();
+    }
+
+    function copyTextToClipboard(text, callback) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() {
+          if (callback) callback(true);
+        }).catch(function() {
+          fallbackCopyText(text);
+          if (callback) callback(true);
+        });
+      } else {
+        fallbackCopyText(text);
+        if (callback) callback(true);
+      }
+    }
+
+    function copyGameLink() {
+      saveGameState();
+      var fullUrl = window.location.href;
+
+      copyTextToClipboard(fullUrl, function() {
+        showCopyFeedback();
+      });
+    }
+
+    function fallbackCopyText(text) {
+      var $temp = $('<input>');
+      $('body').append($temp);
+      $temp.val(text).select();
+      document.execCommand('copy');
+      $temp.remove();
+    }
+
+    function showCopyFeedback() {
+      var $btn = $('#copyLinkBtn');
+      var originalText = $btn.text();
+      $btn.text('Link Copied!').prop('disabled', true);
+      setTimeout(function() {
+        $btn.text(originalText).prop('disabled', false);
+      }, 1500);
+    }
+
+    // ==========================================
     // BUTTON CONTROLS
     // ==========================================
     function undoMove() {
       stopAI();
+      isWaitingForOpponent = false;
+      $('#turnShareOverlay').fadeOut(150);
 
       if (game.history().length === 0) {
         return;
@@ -1018,7 +1699,11 @@
 
       var movesToUndo = 1;
 
-      if (isAIEnabled() && game.turn() === 'w' && game.history().length >= 2) {
+      if (
+        isAIEnabled() &&
+        game.turn() === getPlayerColor() &&
+        game.history().length >= 2
+      ) {
         movesToUndo = 2;
       }
 
@@ -1043,14 +1728,19 @@
         lastClockUpdate = null;
       } else {
         lastClockUpdate = Date.now();
+        startTimers();
       }
 
       resetSelection();
+      syncBoardOrientation();
       updateStatus();
+      saveGameState();
     }
 
     function resetGame() {
       stopAI();
+      isWaitingForOpponent = false;
+      $('#turnShareOverlay').fadeOut(150);
 
       var whiteMinutes = parseInt($('#whiteMins').val(), 10) || 0;
       var blackMinutes = parseInt($('#blackMins').val(), 10) || 0;
@@ -1059,9 +1749,12 @@
       blackTimeLeft = blackMinutes * 60;
 
       lastAIEngineDepth = null;
+      lastAIEngineName = null;
 
       game.reset();
       board.start(false);
+
+      syncBoardOrientation();
 
       gameActive = false;
       lastClockUpdate = null;
@@ -1072,9 +1765,18 @@
 
       timerInterval = null;
 
+      clearSavedState();
       resetSelection();
+      updateEloDisplay();
       updateStatus();
       updateTimerUI();
+
+      if (isAIEnabled() && getAIColor() === 'w') {
+        gameActive = true;
+        startTimers();
+        updateStatus();
+        scheduleAIMove();
+      }
     }
 
     // ==========================================
@@ -1105,8 +1807,38 @@
 
     $('#resetBtn').on('click', resetGame);
     $('#undoBtn').on('click', undoMove);
+    $('#copyLinkBtn').on('click', copyGameLink);
 
-    $('#aiLevel').on('change', function() {
+    $('#reCopyBtn').on('click', function() {
+      var url = $('#turnShareInput').val();
+      var $btn = $(this);
+      copyTextToClipboard(url, function() {
+        $btn.addClass('btn-copied').text('Copied!');
+        setTimeout(function() {
+          $btn.removeClass('btn-copied').text('Copy Link');
+        }, 1200);
+      });
+    });
+
+    $('#turnShareInput').on('click', function() {
+      $(this).select();
+    });
+
+    $('#aiElo').on('input change', function() {
+      updateEloDisplay();
+      saveGameState();
+    });
+
+    $('#autoFlip').on('change', function() {
+      syncBoardOrientation();
+      saveGameState();
+    });
+
+    $('#aiMode').on('change', function() {
+      resetGame();
+    });
+
+    $('#playerColor').on('change', function() {
       resetGame();
     });
 
@@ -1114,7 +1846,12 @@
       board.resize();
     });
 
-    resetGame();
+    // Check for saved state in URL or localStorage
+    var restored = loadSavedState();
+    if (!restored) {
+      updateEloDisplay();
+      resetGame();
+    }
   </script>
 </body>
 </html>
