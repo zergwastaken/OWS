@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OWS - Chess</title>
   <link rel="stylesheet" href="style.css">
 
@@ -42,15 +43,26 @@
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
     }
 
+    /* King In-Check Highlight */
+    .square-in-check {
+      background: radial-gradient(ellipse at center, rgba(231, 76, 60, 0.85) 0%, rgba(192, 57, 43, 0.5) 75%) !important;
+      animation: checkPulse 1.2s infinite ease-in-out;
+    }
+
+    @keyframes checkPulse {
+      0%, 100% { box-shadow: inset 0 0 12px rgba(255, 0, 0, 0.9); }
+      50% { box-shadow: inset 0 0 4px rgba(255, 0, 0, 0.4); }
+    }
+
     /* =========================================
-       Centered Modal Overlay & Box (Matches CSS Theme)
+       Centered Modal Overlay & Box
        ========================================= */
     .modal-overlay {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.78);
-      backdrop-filter: blur(5px);
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(6px);
       z-index: 10000;
       align-items: center;
       justify-content: center;
@@ -63,12 +75,12 @@
       border-radius: 12px;
       box-shadow: var(--shadow-main, 0 10px 30px rgba(0, 0, 0, 0.5));
       width: 100%;
-      max-width: 500px;
+      max-width: 490px;
       padding: 28px 24px;
       color: var(--text-main, #ffffff);
       text-align: center;
       position: relative;
-      animation: modalPopIn 0.25s ease-out forwards;
+      animation: modalPopIn 0.22s ease-out forwards;
     }
 
     @keyframes modalPopIn {
@@ -96,7 +108,7 @@
     }
 
     .modal-box h2 {
-      font-size: 1.4rem;
+      font-size: 1.35rem;
       font-weight: 600;
       margin-bottom: 10px;
       color: var(--text-main, #ffffff);
@@ -115,8 +127,8 @@
 
     .modal-input-group {
       display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
+      gap: 8px;
+      margin-bottom: 16px;
       width: 100%;
     }
 
@@ -136,17 +148,29 @@
       border-color: var(--primary-color, #007acc);
     }
 
+    .modal-button-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .modal-button-row button {
+      flex: 1;
+      padding: 10px 12px;
+    }
+
     .modal-status-badge {
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 10px;
-      padding: 12px 16px;
+      padding: 11px 16px;
       background: var(--bg-component, #333333);
       border: 1px solid #484848;
       border-radius: 8px;
-      font-size: 0.9rem;
+      font-size: 0.88rem;
       color: var(--text-main, #ffffff);
+      margin-bottom: 16px;
     }
 
     .pulse-dot {
@@ -164,8 +188,64 @@
       100% { transform: scale(0.9); opacity: 0.6; }
     }
 
+    .modal-nav-row {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+    }
+
+    .modal-home-btn,
+    .modal-cancel-btn {
+      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      text-decoration: none;
+      background-color: var(--bg-component, #333333);
+      color: var(--text-muted, #aaaaaa);
+      border: 1px solid #555;
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 0.9em;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+    }
+
+    .modal-home-btn:hover {
+      background-color: var(--primary-color, #007acc);
+      color: var(--text-main, #ffffff);
+      border-color: var(--primary-color, #007acc);
+    }
+
+    .modal-cancel-btn {
+      color: #e57373;
+    }
+
+    .modal-cancel-btn:hover {
+      background-color: #c0392b;
+      color: #ffffff;
+      border-color: #e74c3c;
+    }
+
     .btn-copied {
       background-color: #27ae60 !important;
+    }
+
+    .sound-toggle-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted, #aaaaaa);
+      cursor: pointer;
+      font-size: 0.85rem;
+      padding: 4px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .sound-toggle-btn:hover {
+      color: var(--text-main, #ffffff);
     }
   </style>
 </head>
@@ -174,7 +254,7 @@
   <script src="nav.js"></script>
   <div id="nav-placeholder"></div>
 
-  <!-- Centered Modal for Online Turn Sharing (Persistent Waiting Screen) -->
+  <!-- Centered Modal for Online Turn Sharing -->
   <div id="turnShareOverlay" class="modal-overlay">
     <div class="modal-box">
       <div class="badge-icon">
@@ -183,19 +263,41 @@
         </svg>
       </div>
 
-      <h2>Move Sent & Copied!</h2>
+      <h2>Move Sent & Link Copied!</h2>
       <p id="turnShareMessage">
-        The game link has been copied to your clipboard. Send it to your friend and wait for them to make their move and send their link back.
+        The game link was copied to your clipboard. Send it to your friend playing <strong>Black</strong>. Wait for them to make their move and send their link back!
       </p>
 
       <div class="modal-input-group">
-        <input type="text" id="turnShareInput" readonly spellcheck="false">
+        <input type="text" id="turnShareInput" readonly spellcheck="false" title="Click to select all">
+      </div>
+
+      <div class="modal-button-row">
         <button id="reCopyBtn">Copy Link</button>
+        <button id="shareAppBtn" style="background-color: #2e7d32; display: none;">Share via App</button>
       </div>
 
       <div class="modal-status-badge">
         <span class="pulse-dot"></span>
         <span id="turnWaitText">Game paused &bull; Awaiting opponent's reply...</span>
+      </div>
+
+      <div class="modal-nav-row">
+        <button id="modalCancelGameBtn" class="modal-cancel-btn" title="Cancel this game and start fresh">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+          <span>Cancel & New Game</span>
+        </button>
+
+        <a href="index.html" id="modalHomeBtn" class="modal-home-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+          </svg>
+          <span>Return to Home</span>
+        </a>
       </div>
     </div>
   </div>
@@ -203,7 +305,13 @@
   <div class="split-layout">
 
     <div class="side-panel">
-      <h1>Chess</h1>
+      <div style="display: flex; justify-content: space-between; align-items: baseline;">
+        <h1>Chess</h1>
+        <button id="soundToggle" class="sound-toggle-btn" title="Toggle audio effects">
+          <span id="soundIcon">🔊</span>
+          <span id="soundStatus">SFX On</span>
+        </button>
+      </div>
 
       <div class="status-box" id="status">White to move</div>
 
@@ -275,13 +383,9 @@
         </div>
       </div>
 
-      <button id="undoBtn">Undo Last Move</button>
+      <button id="undoBtn">Undo Move (Ctrl+Z)</button>
       <button id="copyLinkBtn">Copy Game Link</button>
       <button id="resetBtn">Apply Settings & Restart</button>
-
-      <p id="aiHelp" style="font-size:0.85rem; margin-top:12px;">
-        Online Two Players mode: After each move, the game link automatically copies and pauses until you open the link sent back by your friend.
-      </p>
     </div>
 
     <div class="board-and-material" style="display:flex; align-items:flex-start; gap:20px;">
@@ -330,7 +434,7 @@
 
   <script>
     // ==========================================
-    // GLOBAL VARIABLES
+    // GLOBAL VARIABLES & STATE
     // ==========================================
     var board = null;
     var game = new Chess();
@@ -359,30 +463,78 @@
     var blackSquareHighlight = '#696969';
     var selectedSquareHighlight = '#71d473';
 
+    var soundEnabled = true;
+    var audioCtx = null;
+
     var STORAGE_KEY = 'ows_chess_saved_game_state';
 
-    var materialValues = {
-      p: 1,
-      n: 3,
-      b: 3,
-      r: 5,
-      q: 9
-    };
-
+    var materialValues = { p: 1, n: 3, b: 3, r: 5, q: 9 };
     var pieceDisplayOrder = ['q', 'r', 'b', 'n', 'p'];
-
     var pieceSymbols = {
       w: { p: '♙', n: '♘', b: '♗', r: '♖', q: '♕' },
       b: { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛' }
     };
+    var startingPieceCounts = { p: 8, n: 2, b: 2, r: 2, q: 1 };
 
-    var startingPieceCounts = {
-      p: 8,
-      n: 2,
-      b: 2,
-      r: 2,
-      q: 1
-    };
+    // ==========================================
+    // SYNTHETIC AUDIO (ZERO-ASSET SOUND ENGINE)
+    // ==========================================
+    function getAudioContext() {
+      if (!audioCtx) {
+        var AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+          audioCtx = new AudioContextClass();
+        }
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      return audioCtx;
+    }
+
+    function playSound(type) {
+      if (!soundEnabled) return;
+      try {
+        var ctx = getAudioContext();
+        if (!ctx) return;
+
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        var now = ctx.currentTime;
+
+        if (type === 'capture') {
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(320, now);
+          osc.frequency.exponentialRampToValueAtTime(140, now + 0.12);
+          gain.gain.setValueAtTime(0.3, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+          osc.start(now);
+          osc.stop(now + 0.12);
+        } else if (type === 'check') {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(520, now);
+          osc.frequency.linearRampToValueAtTime(780, now + 0.15);
+          gain.gain.setValueAtTime(0.35, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
+          osc.start(now);
+          osc.stop(now + 0.18);
+        } else {
+          // Standard Move
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(400, now);
+          osc.frequency.exponentialRampToValueAtTime(200, now + 0.08);
+          gain.gain.setValueAtTime(0.2, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+          osc.start(now);
+          osc.stop(now + 0.08);
+        }
+      } catch (e) {
+        // Audio policy or context failure fallback
+      }
+    }
 
     // ==========================================
     // ORIENTATION SYNC
@@ -471,6 +623,7 @@
       var fromURL = false;
       var urlParams = new URLSearchParams(window.location.search);
 
+      // Check if URL actually contains game data
       if (urlParams.has('fen') || urlParams.has('pgn')) {
         fromURL = true;
         var modeParam = urlParams.get('mode') || 'online';
@@ -487,18 +640,16 @@
           color: urlParams.get('color') || 'w',
           elo: parseInt(urlParams.get('elo'), 10) || 1200,
           autoflip: urlParams.get('autoflip') === '1',
-          waiting: 0 // New incoming link means it is now this player's turn to play
+          waiting: 0
         };
-      } else {
-        try {
-          var stored = localStorage.getItem(STORAGE_KEY);
-          if (stored) {
-            state = JSON.parse(stored);
-            if (state.mode === 'off') state.mode = 'local';
-          }
-        } catch (e) {
-          console.warn('Could not parse saved state from localStorage:', e);
-        }
+      }
+
+      // If user navigated directly to bare chess.html (no query params),
+      // do not auto-restore a previous waiting lock modal so they can play freely.
+      if (!fromURL) {
+        $('#turnShareOverlay').hide();
+        isWaitingForOpponent = false;
+        return false;
       }
 
       if (!state) {
@@ -539,14 +690,8 @@
       updateStatus();
       updateTimerUI();
       updateMaterialTracker();
+      renderCheckHighlight();
 
-      // If local reload was in waiting state, resume waiting modal & keep clock paused
-      if (!fromURL && state.waiting === 1 && state.mode === 'online' && !game.game_over()) {
-        showPersistentWaitingModal();
-        return true;
-      }
-
-      // Received link from friend: clear waiting modal, start timers for player's turn
       $('#turnShareOverlay').hide();
       isWaitingForOpponent = false;
 
@@ -631,38 +776,6 @@
 
       $('#aiEloDisplay').text(elo);
       $('#aiRankLabel').text(getEloRankLabel(elo) + ' — ' + elo + ' Elo');
-
-      if (mode === 'online') {
-        $('#aiHelp').text(
-          'Online Two Players: Make your move, copy and send the link to your friend. The game pauses until they take their turn!'
-        );
-        return;
-      }
-
-      if (mode === 'local') {
-        $('#aiHelp').text(
-          'Local Two Players: Both players take turns on this same screen and device.'
-        );
-        return;
-      }
-
-      if (stockfishReady) {
-        $('#aiHelp').text(
-          'You play ' + getPlayerColorName() +
-          '. The ' + getAIColorName() +
-          ' AI is set to ' + elo +
-          ' Elo and is powered by Stockfish.'
-        );
-      } else if (stockfishFailed) {
-        $('#aiHelp').text(
-          'You play ' + getPlayerColorName() +
-          '. The ' + getAIColorName() +
-          ' AI is set to ' + elo +
-          ' Elo. Running local engine fallback.'
-        );
-      } else {
-        $('#aiHelp').text('Initializing Stockfish...');
-      }
     }
 
     function getSkillLevelFromElo(elo) {
@@ -1184,9 +1297,19 @@
 
       aiThinking = false;
 
+      // Audio feedback
+      if (game.in_check()) {
+        playSound('check');
+      } else if (appliedMove.captured) {
+        playSound('capture');
+      } else {
+        playSound('move');
+      }
+
       resetSelection();
       syncBoardOrientation();
       updateStatus();
+      renderCheckHighlight();
       saveGameState();
     }
 
@@ -1472,7 +1595,7 @@
         }
 
         if (game.in_check()) {
-          statusHTML += ' (Check!)';
+          statusHTML += ' <strong style="color:#e74c3c;">(Check!)</strong>';
         }
       }
 
@@ -1482,15 +1605,37 @@
     }
 
     // ==========================================
-    // BOARD INTERACTION
+    // BOARD HIGHLIGHTS (CHECK & SELECTION)
     // ==========================================
     function removeHighlights() {
       $('#myBoard .square-55d63').css('background', '');
+      $('#myBoard .square-55d63').removeClass('square-in-check');
+    }
+
+    function renderCheckHighlight() {
+      $('#myBoard .square-55d63').removeClass('square-in-check');
+
+      if (game.in_check()) {
+        var turn = game.turn();
+        var boardState = game.board();
+
+        for (var r = 0; r < 8; r++) {
+          for (var c = 0; c < 8; c++) {
+            var piece = boardState[r][c];
+            if (piece && piece.type === 'k' && piece.color === turn) {
+              var colLetter = String.fromCharCode(97 + c);
+              var rowNumber = 8 - r;
+              var kingSquare = colLetter + rowNumber;
+              $('#myBoard .square-' + kingSquare).addClass('square-in-check');
+              break;
+            }
+          }
+        }
+      }
     }
 
     function highlightSquare(square, customColor) {
       var $square = $('#myBoard .square-' + square);
-
       var background = customColor || (
         $square.hasClass('black-3c85d')
           ? blackSquareHighlight
@@ -1520,6 +1665,7 @@
     function resetSelection() {
       sourceSquare = null;
       removeHighlights();
+      renderCheckHighlight();
     }
 
     function handleSquareClick(square) {
@@ -1533,6 +1679,7 @@
         if (piece && piece.color === game.turn()) {
           sourceSquare = square;
           removeHighlights();
+          renderCheckHighlight();
           highlightPossibleMoves(square);
         }
         return;
@@ -1541,6 +1688,7 @@
       if (piece && piece.color === game.turn()) {
         sourceSquare = square;
         removeHighlights();
+        renderCheckHighlight();
         highlightPossibleMoves(square);
         return;
       }
@@ -1553,8 +1701,9 @@
         }
       }
 
+      var fromSq = sourceSquare;
       var move = game.move({
-        from: sourceSquare,
+        from: fromSq,
         to: square,
         promotion: 'q'
       });
@@ -1573,12 +1722,19 @@
         lastClockUpdate = Date.now();
       }
 
+      if (game.in_check()) {
+        playSound('check');
+      } else if (move.captured) {
+        playSound('capture');
+      } else {
+        playSound('move');
+      }
+
       resetSelection();
       syncBoardOrientation();
       updateStatus();
       saveGameState();
 
-      // In Online mode: Pause clock, show persistent modal, auto-copy link
       if (isOnlineMode() && !game.game_over()) {
         showPersistentWaitingModal();
         return;
@@ -1616,6 +1772,7 @@
       }
 
       removeHighlights();
+      renderCheckHighlight();
     }
 
     // ==========================================
@@ -1637,6 +1794,12 @@
       );
 
       $('#turnWaitText').text("Game paused • Awaiting " + nextPlayer + "'s reply link...");
+
+      if (navigator.share) {
+        $('#shareAppBtn').show();
+      } else {
+        $('#shareAppBtn').hide();
+      }
 
       copyTextToClipboard(fullUrl, function() {
         $('#turnShareOverlay').css('display', 'flex').hide().fadeIn(220);
@@ -1780,7 +1943,7 @@
     }
 
     // ==========================================
-    // INITIALIZATION
+    // INITIALIZATION & EVENT LISTENERS
     // ==========================================
     var config = {
       draggable: false,
@@ -1809,6 +1972,13 @@
     $('#undoBtn').on('click', undoMove);
     $('#copyLinkBtn').on('click', copyGameLink);
 
+    // Cancel match button from inside modal
+    $('#modalCancelGameBtn').on('click', function() {
+      if (confirm('Cancel this match and start a new game?')) {
+        resetGame();
+      }
+    });
+
     $('#reCopyBtn').on('click', function() {
       var url = $('#turnShareInput').val();
       var $btn = $(this);
@@ -1820,8 +1990,37 @@
       });
     });
 
+    $('#shareAppBtn').on('click', function() {
+      var url = $('#turnShareInput').val();
+      var nextPlayer = game.turn() === 'w' ? 'White' : 'Black';
+      if (navigator.share) {
+        navigator.share({
+          title: 'OWS Chess - Your Turn!',
+          text: "I made my move in OWS Chess. It's your turn to play as " + nextPlayer + '!',
+          url: url
+        }).catch(function() {});
+      }
+    });
+
     $('#turnShareInput').on('click', function() {
       $(this).select();
+    });
+
+    // Toggle Audio Effects
+    $('#soundToggle').on('click', function() {
+      soundEnabled = !soundEnabled;
+      $('#soundIcon').text(soundEnabled ? '🔊' : '🔇');
+      $('#soundStatus').text(soundEnabled ? 'SFX On' : 'SFX Off');
+    });
+
+    // Keyboard Shortcuts (Ctrl+Z to Undo, Esc to deselect)
+    $(document).on('keydown', function(e) {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        undoMove();
+      } else if (e.key === 'Escape') {
+        resetSelection();
+      }
     });
 
     $('#aiElo').on('input change', function() {
@@ -1842,11 +2041,17 @@
       resetGame();
     });
 
-    $(window).resize(function() {
-      board.resize();
+    // Debounced Resize Observer
+    var resizeTimer = null;
+    $(window).on('resize', function() {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(function() {
+        board.resize();
+        renderCheckHighlight();
+      }, 100);
     });
 
-    // Check for saved state in URL or localStorage
+    // Check for saved state in URL
     var restored = loadSavedState();
     if (!restored) {
       updateEloDisplay();
